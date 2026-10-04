@@ -27,6 +27,10 @@ const zh = {
   hint: '提示', error: '出错了', conflict: '约束冲突', kernelLoading: '几何内核加载中…', kernelReady: '几何内核就绪',
   rebuild: '重建中…', saved: '已自动保存', opened: '已打开项目', exported: '已导出',
   undo: '撤销', redo: '重做',
+  len: '长', ang: '角', snapEnd: '端点', snapMid: '中点', snapCenter: '圆心', snapQuad: '象限点', snapInt: '交点', snapOn: '在线上', snapOrigin: '原点',
+  snapH: '水平', snapV: '竖直', snapAlign: '对齐',
+  numLine: '输入长度，回车', numRect: '输入 宽,高，回车', numCircle: '输入半径，回车',
+  autoSketch: '已自动选用草图', profileOpen: '草图轮廓没有封闭：红点是没接上的端点', keys: '快捷键：L 直线 · R 矩形 · C 圆 · A 圆弧 · D 尺寸 · S 选择 · 画图时直接敲数字定长度',
 };
 const en = {
   app: 'GlassCAD', tagline: 'Web drafting & modeling',
@@ -56,6 +60,10 @@ const en = {
   hint: 'Hint', error: 'Error', conflict: 'Constraint conflict', kernelLoading: 'Loading geometry kernel…', kernelReady: 'Geometry kernel ready',
   rebuild: 'Rebuilding…', saved: 'Autosaved', opened: 'Project opened', exported: 'Exported',
   undo: 'Undo', redo: 'Redo',
+  len: 'L', ang: '∠', snapEnd: 'Endpoint', snapMid: 'Midpoint', snapCenter: 'Center', snapQuad: 'Quadrant', snapInt: 'Intersection', snapOn: 'On curve', snapOrigin: 'Origin',
+  snapH: 'Horizontal', snapV: 'Vertical', snapAlign: 'Aligned',
+  numLine: 'Type length, Enter', numRect: 'Type W,H, Enter', numCircle: 'Type radius, Enter',
+  autoSketch: 'Sketch picked automatically', profileOpen: 'Sketch profile is not closed: red dots are loose endpoints', keys: 'Keys: L line · R rect · C circle · A arc · D dimension · S select · type a number while drawing',
 };
 const DICT = { zh, en };
 let lang = 'zh';

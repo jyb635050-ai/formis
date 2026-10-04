@@ -1,0 +1,22 @@
+// 开发调试：按真人方式操作页面（node tools/dev-user.mjs 场景名），截图到 shots/user-*.png
+import { createRequire } from 'node:module';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+const req = createRequire('C:/Users/73405/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/package.json');
+const { chromium } = req('playwright');
+const DIST = path.resolve('dist');
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.txt': 'text/plain' };
+const srv = http.createServer((q, s) => { let u = decodeURIComponent(q.url.split('?')[0]).replace(/^\/glass-cad\//, '/'); let f = path.join(DIST, u); if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, 'index.html'); if (!fs.existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(s); }).listen(0, '127.0.0.1');
+await new Promise(r => srv.on('listening', r));
+const b = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe' });
+const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } }); const p = await ctx.newPage();
+p.on('console', m => { if (m.type() !== 'log') console.log('[console]', m.type(), m.text()); }); p.on('pageerror', e => console.log('[pageerror]', e.message));
+await p.goto(`http://127.0.0.1:${srv.address().port}/glass-cad/`);
+await p.waitForFunction(() => window.__cad && window.__cad.ready.kernel, null, { timeout: 30000 });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const shot = n => p.screenshot({ path: `shots/user-${n}.png` });
+const click = s => p.click(`[data-testid="${s}"]`);
+const drag = async (a, b) => { await p.mouse.move(a[0], a[1]); await p.mouse.down(); for (let i = 1; i <= 12; i++) { await p.mouse.move(a[0] + (b[0] - a[0]) * i / 12, a[1] + (b[1] - a[1]) * i / 12); await sleep(16); } await p.mouse.up(); await sleep(200); };
+const tap = async (x, y) => { await p.mouse.move(x, y, { steps: 4 }); await p.mouse.down(); await p.mouse.up(); await sleep(200); };
+const scen = await import('./' + 'dev-user-scenes.mjs');
+await scen[process.argv[2]]({ p, click, drag, tap, shot, sleep });
+await b.close(); srv.close();

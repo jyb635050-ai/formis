@@ -54,6 +54,10 @@ function prims(sk, drag) {
         else if (kp === 'arc' && kq === 'arc') P.push({ id: c.id, type: 'equal_radius_aa', a1_id: p, a2_id: q });
         else P.push(kp === 'circle' ? { id: c.id, type: 'equal_radius_ca', c_id: p, a_id: q } : { id: c.id, type: 'equal_radius_ca', c_id: q, a_id: p });
         break;
+      case 'midpoint': P.push({ id: c.id, type: 'p2p_symmetric_ppp', p1_id: q + '.a', p2_id: q + '.b', p_id: p }); break;
+      case 'pointon': P.push(kq === 'line' ? { id: c.id, type: 'point_on_line_pl', p_id: p, l_id: q } : kq === 'arc' ? { id: c.id, type: 'point_on_arc', p_id: p, a_id: q } : { id: c.id, type: 'point_on_circle', p_id: p, c_id: q }); break;
+      case 'hpoints': P.push({ id: c.id, type: 'horizontal_pp', p1_id: p, p2_id: q }); break;
+      case 'vpoints': P.push({ id: c.id, type: 'vertical_pp', p1_id: p, p2_id: q }); break;
       case 'fix': P.push({ id: c.id + '#x', type: 'coordinate_x', p_id: p, x: c.at[0] }); P.push({ id: c.id + '#y', type: 'coordinate_y', p_id: p, y: c.at[1] }); break;
       default: throw new Error('不支持的约束 ' + c.type);
     }

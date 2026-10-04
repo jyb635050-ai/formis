@@ -304,7 +304,9 @@ export function setSelection(sel) {
 // ───── 草图显示 ─────
 const sketchGrp = new THREE.Group(); scene.add(sketchGrp);
 const grid = new THREE.Group(); scene.add(grid);
-let sketchState = { hover: null, sel: new Set(), preview: [] };
+let sketchState = { hover: null, sel: new Set(), preview: [], hoverSketch: null };
+let shown = [];
+export const shownSketches = () => shown.slice();
 export function setSketchState(st) { sketchState = { ...sketchState, ...st }; drawSketches(); }
 const matLine = c => new THREE.LineBasicMaterial({ color: c, depthTest: false, transparent: true });
 function sampleEnt(e, s) {
@@ -327,12 +329,21 @@ export function drawSketches() {
   labels.querySelectorAll('.dim-label').forEach(x => x.remove());
   const show = [];
   if (S.mode === '2d' && S.active) show.push(sketchById(S.active));
-  if (S.mode === '3d') { if (S.active) show.push(sketchById(S.active)); else if (S.selSketch && sketchById(S.selSketch) && !S.doc.features.some(f => f.sketch === S.selSketch)) show.push(sketchById(S.selSketch)); }
+  if (S.mode === '3d') {
+    if (S.active) show.push(sketchById(S.active));
+    else {
+      const used = new Set(S.doc.features.map(f => f.sketch));
+      for (const s of S.doc.sketches) if (s.id !== S.doc.drawing2d && (!used.has(s.id) || s.id === S.selSketch)) show.push(s);
+    }
+  }
+  shown = show.filter(Boolean).map(s => s.id);
   for (const s of show.filter(Boolean)) {
     const editing = s.id === S.active, pl = s.plane;
     if (editing) drawGrid(pl);
     const full = (s.dof || 0) === 0;
-    const base = theme.sketchFull, under = theme.sketchUnder;
+    let base = theme.sketchFull, under = theme.sketchUnder;
+    if (!editing && s.id === S.selSketch) base = under = theme.select;
+    else if (!editing && s.id === sketchState.hoverSketch) base = under = theme.hover;
     const normal = [], cons = [], hov = [], sel = [];
     for (const e of s.ents) {
       if (e.type === 'text') continue;
@@ -350,6 +361,15 @@ export function drawSketches() {
       const arr = new Float32Array(P.length * 3); P.forEach((p, i) => arr.set(toWorld(pl, p), i * 3));
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
       const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: full ? base : under, size: 5, sizeAttenuation: false, depthTest: false })); pts.renderOrder = 11; sketchGrp.add(pts);
+      // 没接上的端点标红（轮廓不封闭就拉伸不了）
+      const ends = [];
+      for (const e of s.ents) { if (e.construction) continue; if (e.type === 'line') ends.push(e.a, e.b); if (e.type === 'arc') { const p = arcPoints(e); ends.push(p.a, p.b); } }
+      const open = ends.filter(p => ends.filter(q => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6).length === 1);
+      if (open.length) {
+        const oa = new Float32Array(open.length * 3); open.forEach((p, i) => oa.set(toWorld(pl, p), i * 3));
+        const og = new THREE.BufferGeometry(); og.setAttribute('position', new THREE.BufferAttribute(oa, 3));
+        const op = new THREE.Points(og, new THREE.PointsMaterial({ color: 0xe5484d, size: 9, sizeAttenuation: false, depthTest: false })); op.renderOrder = 12; sketchGrp.add(op);
+      }
       // 尺寸
       for (const d of s.dims) drawDim(s, d);
       for (const e of s.ents) if (e.type === 'text') textLabel(s, e);
@@ -388,7 +408,7 @@ function drawDim(s, d) {
     }
   } catch (e) { }
   if (segs.length) sketchGrp.add(segObj(pl, segs, theme.dim));
-  const el = document.createElement('div'); el.className = 'dim-label'; el.dataset.dim = d.id;
+  const el = document.createElement('div'); el.className = 'dim-label' + (sketchState.sel.has(d.id) ? ' sel' : ''); el.dataset.dim = d.id;
   el.textContent = (d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : '') + fmt(d.value) + (d.type === 'angle' ? '°' : '');
   el.dataset.wx = JSON.stringify(toWorld(pl, L)); labels.appendChild(el);
 }

@@ -1,9 +1,10 @@
 import './style.css';
-import { S, on, emit, ops, txn, undo, redo, loadSaved, loadDoc, resetDoc, sketchById, featById, sketchView, refOf, saveNow } from './doc.js';
+import { S, on, emit, ops, txn, undo, redo, loadSaved, loadDoc, resetDoc, sketchById, featById, sketchView, refOf, saveNow, beginLive, endLive } from './doc.js';
 import { initSolver } from './solver.js';
 import { createKernel } from './kernel/client.js';
 import * as view from './view.js';
-import { T, setTool, setPick, setToast, closeDimEditor } from './tools.js';
+import { T, setTool, setPick, setToast, closeDimEditor, setOnEditSketch } from './tools.js';
+import { sketchLoops } from './kernel/build.js';
 import { t, getLang, setLang, featName } from './i18n.js';
 import { $, $$, h, fmt, download, safeName } from './util.js';
 import { sketchDrawing, toDxf, toSvg, toPdf, sketchPage } from './export.js';
@@ -39,7 +40,7 @@ const kernel = createKernel({
     S.built = m;
     for (const [sid, pl] of Object.entries(m.planes || {})) { const s = sketchById(sid); if (s) s.plane = pl; }
     view.setModel(m.mesh ? m : null);
-    renderTree(); renderInfo();
+    renderTree(); renderInfo(); if (P && P.live) renderProps();
     if (S.mode === 'sheet') refreshSheet();
     if (firstModel && m.mesh) { firstModel = false; view.viewTo('iso', true); }
     view.drawSketches();
@@ -58,6 +59,8 @@ on(w => {
   if (w === 'doc' || w === 'all') { schedule(); renderTree(); renderInfo(); renderStatus(); $('#pname').value = S.doc.name || ''; }
   if (w === 'all' || w === 'sketch' || w === 'doc') { view.drawSketches(); syncMode(); }
   if (w === 'pick' || w === 'all') renderProps();
+  if (w === 'selSketch') renderTree();
+  if (w === 'sketch' || w === 'all') renderStatus();
 });
 const idle = async () => { await kernel.idle(); await new Promise(r => setTimeout(r, 0)); await kernel.idle(); };
 
@@ -91,26 +94,35 @@ for (const b of $$('[data-mode]')) b.addEventListener('click', () => setMode(b.d
 
 // ───── 草图工具按钮 ─────
 for (const b of $$('[data-tool]')) b.addEventListener('click', () => {
-  if (!S.active) { if (S.mode === '3d') return toast(t('needSketch'), true); }
+  if (!S.active && S.mode !== '2d') {
+    // 三维里没在编辑草图：选中的空草图就进去编辑，否则先选平面新建草图，选完自动切到这个工具
+    const sel = S.selSketch && sketchById(S.selSketch);
+    if (sel && !S.doc.features.some(f => f.sketch === sel.id)) { editSketch(sel.id); setTool(b.dataset.tool); return; }
+    T.pendingTool = b.dataset.tool; startNewSketch(); return;
+  }
   setTool(b.dataset.tool);
 });
+function editSketch(sid) { if (S.mode !== '3d') setMode('3d'); closeProps(); setPick(null); S.active = sid; S.selSketch = sid; setTool('select'); emit('sketch'); renderTree(); view.lookAtSketch(sid); }
+setOnEditSketch(editSketch);
 $('#tool-construction').addEventListener('click', () => {
   if (!S.active || !T.sel.size) return;
   const s = sketchById(S.active); const ids = [...T.sel];
   txn(() => ids.forEach(id => { const e = s.ents.find(x => x.id === id); if (e) ops.construction(id, !e.construction); }));
 });
-$('[data-testid="new-sketch"]').addEventListener('click', () => {
+function startNewSketch() {
   if (S.mode !== '3d') setMode('3d');
   if (S.active) ops.finish(S.active);
+  if (P && P.live) endLive(false);
   openProps({ kind: 'plane' });
   setPick({ kind: 'plane', sel: [], onPick: p => createSketch(p) });
-});
+}
+$('[data-testid="new-sketch"]').addEventListener('click', () => { T.pendingTool = null; startNewSketch(); });
 $('[data-testid="sketch-done"]').addEventListener('click', () => { if (S.active) { ops.finish(S.active); setTool('select'); } closeProps(); setPick(null); renderTree(); });
 async function createSketch(plane) {
   try {
     if (plane.face) await idle();
     const sid = ops.sketch(plane);
-    setPick(null); closeProps(); setTool('select');
+    setPick(null); closeProps(); setTool(T.pendingTool || 'rect'); T.pendingTool = null;
     requestAnimationFrame(() => view.lookAtSketch(sid));
   } catch (e) { toast(e.message, true); }
 }
@@ -130,11 +142,12 @@ function closeProps() { P = null; $('#props').hidden = true; $('#props').innerHT
 function renderProps() {
   const box = $('#props');
   if (!P) { box.hidden = true; return; }
+  const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.testid : null;
   box.hidden = false; box.innerHTML = '';
   if (P.kind === 'plane') {
     box.append(h('h3', {}, t('new-sketch')), h('div', { class: 'hint' }, t('pickPlane')));
     for (const pl of ['XY', 'XZ', 'YZ']) box.append(h('button', { class: 'pl', 'data-testid': 'plane-' + pl, onclick: () => createSketch(pl) }, t('plane-' + pl)));
-    box.append(h('div', { class: 'btns' }, h('button', { 'data-testid': 'feat-cancel', onclick: () => { setPick(null); closeProps(); } }, t('cancel'))));
+    box.append(h('div', { class: 'btns' }, h('button', { 'data-testid': 'feat-cancel', onclick: () => { T.pendingTool = null; setPick(null); closeProps(); } }, t('cancel'))));
     return;
   }
   const spec = FEAT[P.feat];
@@ -142,50 +155,75 @@ function renderProps() {
   if (spec.pick) box.append(h('div', { class: 'hint' }, `${t(spec.pick === 'edges' ? 'pickEdges' : 'pickFaces')} · ${t('selected')} ${T.pick ? T.pick.sel.length : 0}`));
   for (const [k, tid, def] of spec.fields) {
     const inp = h('input', { type: 'number', step: 'any', min: '0', 'data-testid': tid, value: String(P.values[k] ?? def) });
-    inp.addEventListener('input', () => { P.values[k] = parseFloat(inp.value); });
+    inp.addEventListener('input', () => { P.values[k] = parseFloat(inp.value); live(); });
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') okProps(); if (e.key === 'Escape') cancelProps(); e.stopPropagation(); });
     box.append(h('label', { class: 'row' }, h('span', {}, t(k)), inp));
   }
   for (const c of spec.checks || []) {
     const cb = h('input', { type: 'checkbox', checked: !!P.values[c] });
-    cb.addEventListener('change', () => { P.values[c] = cb.checked; });
+    cb.addEventListener('change', () => { P.values[c] = cb.checked; live(); });
     box.append(h('label', { class: 'row' }, h('span', {}, t(c)), cb));
   }
   if (spec.axis) {
     const s = sketchById(P.sketch); const lines = s ? s.ents.filter(e => e.type === 'line') : [];
     const sel = h('select', {}, lines.map(l => h('option', { value: l.id, selected: l.id === P.values.axis }, `${l.id}${l.construction ? ' ·' : ''}`)));
-    if (!P.values.axis && lines.length) P.values.axis = (lines.find(l => l.construction) || lines[0]).id, sel.value = P.values.axis;
-    sel.addEventListener('change', () => { P.values.axis = sel.value; });
+    sel.addEventListener('change', () => { P.values.axis = sel.value; live(); });
     box.append(h('label', { class: 'row' }, h('span', {}, t('axis')), sel));
   }
-  if (P.error) box.append(h('div', { class: 'err' }, P.error));
+  const err = P.error || (P.fid && S.built && S.built.errors && S.built.errors[P.fid]);
+  if (err) box.append(h('div', { class: 'err' }, /封闭轮廓/.test(err) ? err + '。' + t('profileOpen') : err));
   box.append(h('div', { class: 'btns' }, h('button', { 'data-testid': 'feat-cancel', onclick: cancelProps }, t('cancel')), h('button', { class: 'pri', 'data-testid': 'feat-ok', onclick: okProps }, t('ok'))));
+  if (focused) { const f = box.querySelector(`[data-testid="${focused}"]`); if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) { } } }
 }
-function cancelProps() { setPick(null); closeProps(); }
+function paramsOf(spec, v) { const p = {}; for (const [k] of spec.fields) p[k] = v[k]; for (const c of spec.checks || []) p[c] = !!v[c]; if (spec.axis) p.axis = v.axis; return p; }
+// 面板开着时边改边重建（实时预览）；整个面板算一步撤销
+function live() {
+  if (!P || !P.live || !P.fid) return;
+  const spec = FEAT[P.feat];
+  for (const [k] of spec.fields) if (!(P.values[k] > 0)) return;
+  P.error = null; ops.setParam(P.fid, paramsOf(spec, P.values));
+}
+function cancelProps() { if (P && P.live) endLive(false); setPick(null); closeProps(); }
 async function okProps() {
   if (!P || P.kind === 'plane') return;
   const v = P.values, spec = FEAT[P.feat];
   try {
     for (const [k] of spec.fields) if (!(v[k] > 0)) throw new Error(t(k) + ' > 0');
-    if (P.edit) {
-      const p = {}; for (const [k] of spec.fields) p[k] = v[k]; for (const c of spec.checks || []) p[c] = !!v[c]; if (spec.axis) p.axis = v.axis;
-      ops.setParam(P.edit, p);
-    } else if (P.feat === 'extrude' || P.feat === 'cut') api.cmd.extrude(P.sketch, { depth: v.depth, cut: P.feat === 'cut', through: !!v.through, reverse: !!v.reverse });
-    else if (P.feat === 'revolve') api.cmd.revolve(P.sketch, { axis: v.axis, angle: v.angle });
-    else {
-      const pts = T.pick.sel.map(s => s.point);
+    if (P.live) {
+      live(); await idle();
+      const err = S.built && S.built.errors && S.built.errors[P.fid];
+      if (err) { P.error = err; renderProps(); toast(err, true); return; }
+      endLive(true);
+    } else {
+      const pts = T.pick.sel.map(q => q.point);
       if (!pts.length) throw new Error(t(spec.pick === 'edges' ? 'pickEdges' : 'pickFaces'));
-      if (P.feat === 'fillet') await api.cmd.fillet({ radius: v.radius, edges: pts });
-      if (P.feat === 'chamfer') await api.cmd.chamfer({ distance: v.distance, edges: pts });
-      if (P.feat === 'shell') await api.cmd.shell({ thickness: v.thickness, faces: pts });
+      let fid;
+      if (P.feat === 'fillet') fid = await api.cmd.fillet({ radius: v.radius, edges: pts });
+      if (P.feat === 'chamfer') fid = await api.cmd.chamfer({ distance: v.distance, edges: pts });
+      if (P.feat === 'shell') fid = await api.cmd.shell({ thickness: v.thickness, faces: pts });
+      await idle();
+      const err = S.built && S.built.errors && S.built.errors[fid];
+      if (err) { undo(); await idle(); throw new Error(err); }
     }
     setPick(null); closeProps();
-  } catch (e) { P.error = e.message; renderProps(); }
+  } catch (e) { P.error = e.message; renderProps(); toast(e.message, true); }
+}
+// 找特征要用的草图：正在编辑的 → 选中的 → 最近一张还没用过、有封闭轮廓的
+function sketchForFeature() {
+  if (S.active) return S.active;
+  if (S.selSketch && sketchById(S.selSketch)) return S.selSketch;
+  const used = new Set(S.doc.features.map(f => f.sketch));
+  const cand = S.doc.sketches.filter(s => s.id !== S.doc.drawing2d && !used.has(s.id) && s.ents.length);
+  const closed = cand.filter(s => { try { return sketchLoops(s).length > 0; } catch (e) { return false; } });
+  const pick = (closed.length ? closed : cand).slice(-1)[0];
+  if (pick) toast(t('autoSketch'));
+  return pick ? pick.id : null;
 }
 for (const b of $$('[data-feat]')) b.addEventListener('click', () => {
   if (S.mode !== '3d') setMode('3d');
+  if (P && P.live) endLive(false);
   const feat = b.dataset.feat, spec = FEAT[feat];
-  setPick(null);
+  setPick(null); closeProps();
   if (spec.pick) {
     if (!(S.built && S.built.measure.volume > 0)) return toast(t('needSolid'), true);
     if (S.active) ops.finish(S.active);
@@ -193,18 +231,29 @@ for (const b of $$('[data-feat]')) b.addEventListener('click', () => {
     setPick({ kind: spec.pick, sel: [] });
     return;
   }
-  const sid = S.active || S.selSketch;
+  const sid = sketchForFeature();
   if (!sid || !sketchById(sid)) return toast(t('needSketch'), true);
   if (S.active) ops.finish(S.active);
-  openProps({ kind: 'feat', feat, sketch: sid, values: {} });
+  const values = {};
+  for (const [k, , def] of spec.fields) values[k] = def;
+  if (spec.axis) { const s = sketchById(sid); const lines = s.ents.filter(e => e.type === 'line'); const ax = lines.find(l => l.construction) || lines[0]; values.axis = ax && ax.id; }
+  beginLive();
+  let fid;
+  try {
+    if (feat === 'revolve') fid = api.cmd.revolve(sid, { axis: values.axis, angle: values.angle });
+    else fid = api.cmd.extrude(sid, { depth: values.depth, cut: feat === 'cut', through: false, reverse: false });
+  } catch (e) { endLive(false); return toast(e.message, true); }
+  openProps({ kind: 'feat', feat, sketch: sid, values, live: true, fid });
   setTimeout(() => { const i = $('#props input[type=number]'); i && i.focus(); i && i.select(); }, 30);
 });
 function editFeature(fid) {
   const f = featById(fid); if (!f) return;
+  if (P && P.live) endLive(false);
   const feat = f.type === 'extrude' && f.params.cut ? 'cut' : f.type;
   setPick(null);
   const values = { ...f.params };
-  openProps({ kind: 'feat', feat, edit: fid, sketch: f.sketch, values });
+  beginLive();
+  openProps({ kind: 'feat', feat, edit: fid, sketch: f.sketch, values, live: true, fid });
   setTimeout(() => { const i = $('#props input[type=number]'); i && i.focus(); i && i.select(); }, 30);
 }
 
@@ -251,6 +300,7 @@ function renderStatus() {
   let s = S.mode === '2d' ? t('status2d') : S.mode === 'sheet' ? t('statusSheet') : t('status3d');
   const a = S.active && sketchById(S.active);
   if (a) s += ` · ${t('dof')} ${a.dof || 0}（${(a.dof || 0) === 0 ? t('fully') : t('under')}）`;
+  if (a) s += ' · ' + t('keys');
   if (!ready.kernel) s = t('kernelLoading') + ' · ' + s;
   el.textContent = s;
 }
@@ -376,7 +426,7 @@ const api = {
   measure: () => { const m = S.built && S.built.measure; return m ? JSON.parse(JSON.stringify(m)) : { volume: 0, area: 0, bbox: [[0, 0, 0], [0, 0, 0]] }; },
   export: f => exportBlob(f),
   async load(obj) { loadDoc(obj); firstModel = true; await idle(); },
-  undo() { closeDimEditor(); const r = undo(); return r; },
+  undo() { closeDimEditor(); if (P && P.live) { cancelProps(); return true; } const r = undo(); return r; },
   redo() { closeDimEditor(); return redo(); },
   cmd: {
     async sketch(plane) { if (plane && plane.face) await idle(); return ops.sketch(plane); },

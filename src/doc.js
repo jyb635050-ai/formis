@@ -19,8 +19,11 @@ export const on = fn => subs.add(fn);
 export function emit(what) { for (const f of subs) { try { f(what); } catch (e) { setTimeout(() => { throw e; }); } } }
 
 // ───── 撤销 ─────
-function snap() { if (S.txn) return; S.history.push(JSON.stringify({ doc: S.doc, active: S.active, selSketch: S.selSketch })); if (S.history.length > 300) S.history.shift(); S.future = []; }
-function unsnap() { if (!S.txn) S.history.pop(); }
+function snap() { if (S.txn || S.live) return; S.history.push(JSON.stringify({ doc: S.doc, active: S.active, selSketch: S.selSketch })); if (S.history.length > 300) S.history.shift(); S.future = []; }
+function unsnap() { if (!S.txn && !S.live) S.history.pop(); }
+// 实时编辑（特征面板开着时边改边看）：开始时存一次撤销点，期间的修改不再单独存；取消就整体撤回
+export function beginLive() { snap(); S.live = true; }
+export function endLive(commit) { S.live = false; if (!commit) { S.future = []; undo(); S.future = []; } }
 export function txn(fn) { snap(); S.txn++; try { return fn(); } finally { S.txn--; changed(); } }
 function restore(js) { const o = JSON.parse(js); S.doc = o.doc; S.active = S.doc.sketches.some(s => s.id === o.active) ? o.active : null; S.selSketch = o.selSketch; changed(); emit('all'); }
 export function undo() { if (!S.history.length) return false; S.future.push(JSON.stringify({ doc: S.doc, active: S.active, selSketch: S.selSketch })); restore(S.history.pop()); return true; }

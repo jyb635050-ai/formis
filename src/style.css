@@ -125,7 +125,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 #sheetview .paper { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 20px 60px rgba(0, 0, 0, .25); border-radius: 2px; background: #fff; }
 #sheetview svg { display: block; width: 100%; height: 100%; stroke: none; }
 
-#status { position: fixed; left: 64px; bottom: 16px; z-index: 5; font-size: 12px; color: var(--fg2); pointer-events: none; max-width: 30vw; }
+#status { position: fixed; left: 16px; bottom: 16px; z-index: 5; font-size: 12px; color: var(--fg2); pointer-events: none; max-width: calc(50vw - 390px); }
+body.m2d #status, body.msheet #status { max-width: 60vw; }
 #toast { position: fixed; top: 76px; left: 50%; transform: translateX(-50%); z-index: 40; padding: 9px 16px; border-radius: 12px; background-color: var(--glass2); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); border: 1px solid var(--line); box-shadow: var(--shadow); font-weight: 600; animation: pop .2s; }
 #toast.bad { color: var(--danger); }
 #dimbox { position: fixed; z-index: 50; transform: translate(-50%, -50%); padding: 4px; border-radius: 12px; }
@@ -137,3 +138,20 @@ body.msheet #sketchbar, body.msheet #dock, body.msheet #tree { display: none !im
 body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 @media (max-width: 1100px) { .brand small { display: none; } }
 @media (max-width: 760px) { #pname, .brand b { display: none; } #tree { width: 180px; } }
+
+/* 捕捉与参考线 */
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; stroke: none; z-index: 2; }
+.overlay .guide { stroke: #ff8a00; stroke-width: 1; stroke-dasharray: 5 4; fill: none; }
+.overlay .guide-dot { fill: #ff8a00; }
+.overlay .snap { stroke: #ff6a00; stroke-width: 2; fill: rgba(255, 138, 0, .15); }
+.overlay .snap.thick { stroke-width: 2.4; }
+.overlay .box { fill: var(--accent2); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; }
+.readout { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; padding: 4px 8px; border-radius: 9px; font: 600 12px/1.45 var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;
+  background-color: var(--glass2); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); box-shadow: 0 4px 16px rgba(0, 0, 0, .12); }
+.readout b { color: #ff6a00; }
+.numbox { position: absolute !important; left: 0; top: 0; z-index: 4; padding: 5px; display: flex; flex-direction: column; gap: 2px; }
+.numbox input { width: 120px; padding: 6px 8px; border: 0; border-radius: 9px; background: var(--glass2); outline: none; font-weight: 700; box-shadow: 0 0 0 2px var(--accent); user-select: text; }
+.numbox small { color: var(--fg2); font-size: 11px; padding: 0 3px; }
+.dim-label.sel { box-shadow: 0 0 0 2px #ff6a00; }
+#viewport[data-tool="line"], #viewport[data-tool="rect"], #viewport[data-tool="circle"], #viewport[data-tool="arc"] { cursor: crosshair; }
+#viewport[data-tool="dim"] { cursor: cell; }
