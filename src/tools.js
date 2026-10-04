@@ -1,6 +1,6 @@
 // 鼠标工具：草图里画线/矩形/圆/圆弧（点两下或按住拖都行）、对象捕捉、水平竖直参考线、光标旁实时尺寸、键盘输数、
 // 智能尺寸、选择（点选/框选/拖点）；三维里悬停高亮、点选草图、选平面、选边、选面
-import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf } from './doc.js';
+import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf, moveDimLabel } from './doc.js';
 import { solveSketch } from './solver.js';
 import { arcPoints } from './kernel/build.js';
 import * as view from './view.js';
@@ -251,7 +251,10 @@ function sketchDown(e) {
   closeNum();
   if (T.tool === 'select') {
     const hp = hitPoint(s, x, y);
-    if (hp) { T.st = { drag: hp.ref, moved: false }; beginDrag(); return; }
+    if (hp) {
+      if (lockedAt(s, hp.uv)) { toast(t('dimLocked')); return; }
+      T.st = { drag: hp.ref, moved: false }; beginDrag(); return;
+    }
     const he = hitEnt(s, x, y);
     if (he) { if (!e.shiftKey && !e.ctrlKey) T.sel.clear(); T.sel.has(he.id) ? T.sel.delete(he.id) : T.sel.add(he.id); syncSel(); return; }
     T.st = { box: [x, y], add: e.shiftKey || e.ctrlKey }; return;
@@ -284,7 +287,13 @@ function sketchMove(e) {
     if (lab) info.unshift(`<b>${lab}</b>`);
     if (T.st.start && !info.length) info.push('');
     showReadout(x, y, info.filter(Boolean));
-  } else if (T.tool === 'dim' || T.tool === 'select') { ov.innerHTML = ''; readout.hidden = true; }
+  } else if (T.tool === 'dim' || T.tool === 'select') {
+    ov.innerHTML = ''; readout.hidden = true;
+    if (T.tool === 'dim' && T.st.place) {
+      const uv = view.screenToPlane(s.plane, x, y);
+      if (uv) { const d = decideDim(s, T.st, uv); view.setSketchState({ preview: [], hover: null, dimPreview: { id: '#preview', ...d } }); return; }
+    }
+  }
   const he = T.tool === 'select' || T.tool === 'dim' ? hitEnt(s, x, y) : null;
   view.setSketchState({ preview: prev, hover: he ? he.id : null });
 }
@@ -319,27 +328,49 @@ function syncSel() {
   emit('sel');
 }
 
+// 被尺寸标注过的图形"定死"：它的端点/圆心不能直接拖（改数值请双击尺寸数字）
+function dimmedPoints(s) {
+  const pts = [];
+  for (const d of s.dims) for (const r of d.refs) {
+    if (r.includes('.')) { pts.push(ptOf(s, r)); continue; }
+    const e = s.ents.find(q => q.id === r); if (!e) continue;
+    if (e.type === 'line') pts.push(e.a, e.b);
+    else if (e.type === 'circle') pts.push(e.c);
+    else if (e.type === 'arc') { const p = arcPoints(e); pts.push(e.c, p.a, p.b); }
+  }
+  return pts;
+}
+function lockedAt(s, uv) { return dimmedPoints(s).some(p => Math.hypot(p[0] - uv[0], p[1] - uv[1]) < 1e-6); }
+
 // ───── 智能尺寸 ─────
+// 根据鼠标位置决定尺寸类型和数字偏移：两点距离放在上下方＝水平尺寸，左右＝竖直尺寸，斜着＝两点直线距离
+function decideDim(s, st, uv) {
+  let type = st.type; const refs = st.refs; let off;
+  if (type === 'radius' || type === 'diameter') { const e = s.ents.find(q => q.id === refs[0]); off = [uv[0] - e.c[0], uv[1] - e.c[1]]; }
+  else {
+    const [p, q] = type === 'length' ? [ptOf(s, refs[0] + '.a'), ptOf(s, refs[0] + '.b')] : [ptOf(s, refs[0]), ptOf(s, refs[1])];
+    const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; off = [uv[0] - mid[0], uv[1] - mid[1]];
+    if (type === 'distance') {
+      const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]);
+      if (dx > 1e-6 && dy > 1e-6) {
+        // 鼠标在两点的竖向范围之外（上方/下方）→ 水平尺寸；在横向范围之外（左/右）→ 竖直尺寸；否则直线距离
+        const outY = uv[1] > Math.max(p[1], q[1]) || uv[1] < Math.min(p[1], q[1]), outX = uv[0] > Math.max(p[0], q[0]) || uv[0] < Math.min(p[0], q[0]);
+        if (outY && !outX) type = 'hdist'; else if (outX && !outY) type = 'vdist';
+      } else type = dy < 1e-6 ? 'hdist' : 'vdist';
+    }
+  }
+  return { type, refs, off, value: currentValue(s, type, refs) };
+}
 function dimDown(s, x, y) {
   const st = T.st;
   if (st.place) {
     const uv = view.screenToPlane(s.plane, x, y); if (!uv) return;
-    let type = st.type; const refs = st.refs; let off;
-    if (type === 'radius' || type === 'diameter') { const e = s.ents.find(q => q.id === refs[0]); off = [uv[0] - e.c[0], uv[1] - e.c[1]]; }
-    else {
-      const [p, q] = type === 'length' ? [ptOf(s, refs[0] + '.a'), ptOf(s, refs[0] + '.b')] : [ptOf(s, refs[0]), ptOf(s, refs[1])];
-      const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; off = [uv[0] - mid[0], uv[1] - mid[1]];
-      if (type === 'distance') {
-        const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]);
-        if (dx > 1e-6 && dy > 1e-6) { if (Math.abs(off[1]) > Math.abs(off[0]) * 2) type = 'hdist'; else if (Math.abs(off[0]) > Math.abs(off[1]) * 2) type = 'vdist'; }
-        else type = dy < 1e-6 ? 'hdist' : 'vdist';
-      }
-    }
-    const value = currentValue(s, type, refs);
+    const d = decideDim(s, st, uv);
     T.st = {};
-    try { const id = ops.dim(s.id, type, refs, value, off); emit('sketch'); setTimeout(() => openDimEditor(id), 30); }
+    view.setSketchState({ preview: [], sel: new Set(), dimPreview: null });
+    try { const id = ops.dim(s.id, d.type, d.refs, d.value, d.off); emit('sketch'); setTimeout(() => openDimEditor(id), 30); }
     catch (err) { toast(err.message, true); }
-    view.setSketchState({ preview: [], sel: new Set() }); return;
+    return;
   }
   const hp = hitPoint(s, x, y);
   if (hp) {
@@ -439,7 +470,31 @@ inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement
 host.addEventListener('dblclick', e => {
   const l = e.target.closest('.dim-label'); if (l && l.dataset.dim) { e.stopPropagation(); openDimEditor(l.dataset.dim); }
 });
+// 拖动尺寸数字换位置（不改尺寸值）
+let labDrag = null;
+host.addEventListener('pointerdown', e => {
+  const l = e.target.closest('.dim-label[data-dim]'); if (!l || !S.active || e.button !== 0) return;
+  labDrag = { id: l.dataset.dim, x: e.clientX, y: e.clientY, on: false, el: l };
+  try { l.setPointerCapture(e.pointerId); } catch (x) { }
+});
+window.addEventListener('pointermove', e => {
+  if (!labDrag) return;
+  if (!labDrag.on && Math.hypot(e.clientX - labDrag.x, e.clientY - labDrag.y) < 3) return;
+  const s = active(); if (!s) { labDrag = null; return; }
+  const d = s.dims.find(q => q.id === labDrag.id); if (!d) { labDrag = null; return; }
+  if (!labDrag.on) { labDrag.on = true; beginDrag(); closeDimEditor(); }
+  const uv = view.screenToPlane(s.plane, e.clientX, e.clientY); if (!uv) return;
+  moveDimLabel(s, d, uv); view.drawSketches();
+  const nl = host.querySelector(`.dim-label[data-dim="${d.id}"]`); if (nl) nl.classList.add('dragging');
+});
+window.addEventListener('pointerup', () => {
+  if (!labDrag) return;
+  const was = labDrag.on; labDrag = null;
+  if (was) { endDrag(); view.drawSketches(); labMoved = true; setTimeout(() => { labMoved = false; }, 0); }
+});
+let labMoved = false;
 host.addEventListener('click', e => {
+  if (labMoved) return;
   const l = e.target.closest('.dim-label'); if (!l || !l.dataset.dim || !S.active) return;
   if (!e.shiftKey && !e.ctrlKey) T.sel.clear(); T.sel.add(l.dataset.dim); syncSel();
 });

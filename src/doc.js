@@ -65,6 +65,14 @@ export function dimLabel(s, d) {
     return [(p[0] + q[0]) / 2 + off[0], (p[1] + q[1]) / 2 + off[1]];
   } catch (e) { return [0, 0]; }
 }
+// 把尺寸数字挪到草图坐标 uv（拖动数字用，不存撤销点）
+export function dimBase(s, d) {
+  if (d.type === 'radius' || d.type === 'diameter') return s.ents.find(x => x.id === d.refs[0]).c;
+  if (d.type === 'angle') return s.ents.find(x => x.id === d.refs[0]).a;
+  const [p, q] = d.type === 'length' ? [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')] : [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
+  return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+}
+export function moveDimLabel(s, d, uv) { const b = dimBase(s, d); d.off = [uv[0] - b[0], uv[1] - b[1]]; }
 export function sketchView(id) {
   const s = sk(id);
   const ents = s.ents.map(e => { const o = JSON.parse(JSON.stringify(e)); if (e.type === 'arc') { o.a = ptOf(s, e.id + '.a'); o.b = ptOf(s, e.id + '.b'); } o.construction = !!e.construction; return o; });

@@ -60,3 +60,39 @@ export async function nav({ p, click, drag, tap, shot, sleep }) {
   r.consoleErr = 0; await shot('n-end');
   console.log(JSON.stringify(r));
 }
+export async function dims({ p, click, drag, tap, shot, sleep }) {
+  await click('mode-2d'); await sleep(700);
+  const S = uv => p.evaluate(uv => __cad.toScreen(__cad.active(), uv), uv);
+  await click('tool-line');
+  for (const uv of [[10, 0], [10, 20], [60, 20], [60, 16], [30, 16]]) { const q = await S(uv); await tap(q.x, q.y); }
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await click('tool-dim');
+  let q = await S([10, 10]); await tap(q.x, q.y);                  // 竖线
+  const pl = await S([2, 14]); await p.mouse.move(pl.x, pl.y, { steps: 6 }); await sleep(150); await shot('p-dim-preview');
+  await tap(pl.x, pl.y); await sleep(200); await p.keyboard.press('Enter'); await sleep(200);
+  q = await S([60, 20]); await tap(q.x, q.y); q = await S([60, 16]); await tap(q.x, q.y); // 两点
+  const p2 = await S([68, 21]); await p.mouse.move(p2.x, p2.y, { steps: 6 }); await sleep(150); await tap(p2.x, p2.y); await sleep(200); await p.keyboard.press('Enter');
+  await p.keyboard.press('Escape'); await click('tool-select'); await sleep(200); await shot('q-dims');
+  // 拖尺寸数字
+  const before = await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => d.label.map(v => Math.round(v * 10) / 10)));
+  const lab = await p.$('.dim-label[data-dim]'); const bb = await lab.boundingBox();
+  await drag([bb.x + bb.width / 2, bb.y + bb.height / 2], [bb.x - 60, bb.y + 80]);
+  const after = await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => d.label.map(v => Math.round(v * 10) / 10)));
+  // 拖被标注的线端点
+  const g0 = await p.evaluate(() => JSON.stringify(__cad.sketch(__cad.active()).entities[0]));
+  q = await S([10, 20]); await drag([q.x, q.y], [q.x + 80, q.y - 40]);
+  const g1 = await p.evaluate(() => JSON.stringify(__cad.sketch(__cad.active()).entities[0]));
+  const toast = await p.evaluate(() => document.querySelector('#toast').hidden ? '' : document.querySelector('#toast').textContent);
+  await shot('r-after');
+  console.log(JSON.stringify({ before, after, lineUnchanged: g0 === g1, toast, dims: await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => [d.type, d.value])) }));
+}
+export async function labdbg({ p, click, drag, tap, shot, sleep }) {
+  await click('mode-2d'); await sleep(700);
+  await p.evaluate(() => { const C = __cad.cmd, s = __cad.active(); const l = C.line(s, [10, 0], [10, 20]); C.dim(s, 'length', [l], 20); });
+  await sleep(300);
+  const lab = await p.$('.dim-label[data-dim]'); const bb = await lab.boundingBox();
+  const hit = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e.className + ' ' + (e.dataset.dim || ''); }, [bb.x + bb.width / 2, bb.y + bb.height / 2]);
+  await p.evaluate(() => { window.__log = []; for (const t of ['pointerdown', 'pointermove', 'pointerup']) window.addEventListener(t, e => window.__log.push(t + ':' + (e.target.className || e.target.tagName)), true); });
+  await drag([bb.x + bb.width / 2, bb.y + bb.height / 2], [bb.x - 60, bb.y + 80]);
+  console.log(hit, JSON.stringify(await p.evaluate(() => [__log.slice(0, 4), __log.length, __cad.sketch(__cad.active()).dims[0].label])));
+}

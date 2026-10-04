@@ -345,7 +345,7 @@ export function setSelection(sel) {
 // ───── 草图显示 ─────
 const sketchGrp = new THREE.Group(); scene.add(sketchGrp);
 const grid = new THREE.Group(); scene.add(grid);
-let sketchState = { hover: null, sel: new Set(), preview: [], hoverSketch: null };
+let sketchState = { hover: null, sel: new Set(), preview: [], hoverSketch: null, dimPreview: null };
 let shown = [];
 export const shownSketches = () => shown.slice();
 export function setSketchState(st) { sketchState = { ...sketchState, ...st }; drawSketches(); }
@@ -413,10 +413,12 @@ export function drawSketches() {
       }
       // 尺寸
       for (const d of s.dims) drawDim(s, d);
+      if (sketchState.dimPreview) drawDim(s, sketchState.dimPreview, true);
       for (const e of s.ents) if (e.type === 'text') textLabel(s, e);
     }
     if (sketchState.preview && editing && sketchState.preview.length) sketchGrp.add(segObj(pl, sketchState.preview, theme.preview));
   }
+  placeLabels(); // 重建的标签立刻放到位，否则这一帧里点不中尺寸数字
   dirty = true;
 }
 function drawGrid(pl) {
@@ -426,7 +428,8 @@ function drawGrid(pl) {
   const b = segObj(pl, major, theme.grid); b.renderOrder = 1; b.material.opacity = 0.7; grid.add(b);
   const ax = segObj(pl, [[[0, 0], [12, 0]]], 0xe5484d); const ay = segObj(pl, [[[0, 0], [0, 12]]], 0x30a46c); grid.add(ax, ay);
 }
-function drawDim(s, d) {
+// 尺寸：尺寸界线垂直于被标注的方向，尺寸线与之平行；数字可以沿尺寸线放，放到界线外面时尺寸线跟着延长
+function drawDim(s, d, preview) {
   const pl = s.plane, L = dimLabel(s, d), segs = [];
   try {
     if (d.type === 'radius' || d.type === 'diameter') {
@@ -435,21 +438,32 @@ function drawDim(s, d) {
       if (d.type === 'diameter') segs.push([[e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], L]); else segs.push([e.c, L]);
       arrow(segs, p1, [dir[0], dir[1]]);
       if (d.type === 'diameter') arrow(segs, [e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], [-dir[0], -dir[1]]);
-    } else if (d.type === 'angle') {
-      // 简化：只标数字
-    } else {
+    } else if (d.type !== 'angle') {
       const [p, q] = d.type === 'length' ? [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')] : [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
-      let a = p, b = q;
-      if (d.type === 'hdist') { a = [p[0], L[1]]; b = [q[0], L[1]]; }
-      else if (d.type === 'vdist') { a = [L[0], p[1]]; b = [L[0], q[1]]; }
-      else { const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], off = [L[0] - mid[0], L[1] - mid[1]]; a = [p[0] + off[0], p[1] + off[1]]; b = [q[0] + off[0], q[1] + off[1]]; }
-      segs.push([p, a], [q, b], [a, b]);
-      const dd = [b[0] - a[0], b[1] - a[1]], len = Math.hypot(...dd) || 1;
-      arrow(segs, a, [-dd[0] / len, -dd[1] / len]); arrow(segs, b, [dd[0] / len, dd[1] / len]);
+      // 尺寸方向 u：水平尺寸＝X，竖直尺寸＝Y，长度/距离＝两点连线
+      let u = d.type === 'hdist' ? [1, 0] : d.type === 'vdist' ? [0, 1] : [q[0] - p[0], q[1] - p[1]];
+      const ul = Math.hypot(u[0], u[1]) || 1; u = [u[0] / ul, u[1] / ul];
+      const n = [-u[1], u[0]];
+      const off = pp => (L[0] - pp[0]) * n[0] + (L[1] - pp[1]) * n[1];
+      const a = [p[0] + n[0] * off(p), p[1] + n[1] * off(p)], b = [q[0] + n[0] * off(q), q[1] + n[1] * off(q)];
+      const ext = k => 1.5 / Math.max(0.3, C.scale / 4) * Math.sign(k || 1);
+      segs.push([p, [a[0] + n[0] * ext(off(p)), a[1] + n[1] * ext(off(p))]], [q, [b[0] + n[0] * ext(off(q)), b[1] + n[1] * ext(off(q))]], [a, b]);
+      const dd = [b[0] - a[0], b[1] - a[1]], len = Math.hypot(dd[0], dd[1]) || 1, du = [dd[0] / len, dd[1] / len];
+      // 数字在界线外面：尺寸线延长到数字处
+      const tpos = (L[0] - a[0]) * du[0] + (L[1] - a[1]) * du[1];
+      if (tpos < 0) segs.push([a, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
+      if (tpos > len) segs.push([b, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
+      if (len * C.scale < 28) {
+        // 尺寸太短放不下箭头：箭头翻到界线外侧朝里指
+        const k = 18 / C.scale;
+        segs.push([a, [a[0] - du[0] * k, a[1] - du[1] * k]], [b, [b[0] + du[0] * k, b[1] + du[1] * k]]);
+        arrow(segs, a, du); arrow(segs, b, [-du[0], -du[1]]);
+      } else { arrow(segs, a, [-du[0], -du[1]]); arrow(segs, b, du); }
     }
   } catch (e) { }
-  if (segs.length) sketchGrp.add(segObj(pl, segs, theme.dim));
-  const el = document.createElement('div'); el.className = 'dim-label' + (sketchState.sel.has(d.id) ? ' sel' : ''); el.dataset.dim = d.id;
+  if (segs.length) sketchGrp.add(segObj(pl, segs, preview ? theme.hover : theme.dim));
+  const el = document.createElement('div'); el.className = 'dim-label' + (sketchState.sel.has(d.id) ? ' sel' : '') + (preview ? ' preview' : '');
+  if (!preview) el.dataset.dim = d.id;
   el.textContent = (d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : '') + fmt(d.value) + (d.type === 'angle' ? '°' : '');
   el.dataset.wx = JSON.stringify(toWorld(pl, L)); labels.appendChild(el);
 }
