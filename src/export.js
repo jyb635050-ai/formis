@@ -59,7 +59,7 @@ export function dimGeom(d, ts) {
     const p = add(d.c, mul(d.dir, d.r)), q = d.kind === 'diameter' ? sub(d.c, mul(d.dir, d.r)) : d.c;
     segs.push([q, d.at.length ? (Math.hypot(...sub(d.at, d.c)) > d.r ? d.at : p) : p]);
     arrow(p, d.dir); if (d.kind === 'diameter') arrow(q, mul(d.dir, -1));
-    text = (d.kind === 'diameter' ? 'Ø' : 'R') + fmt(d.value);
+    text = d.label || ((d.kind === 'diameter' ? 'Ø' : 'R') + fmt(d.value));
     at = add(d.at, mul(d.dir, ts * 1.2));
   } else if (d.kind === 'angle') { text = fmt(d.value) + '°'; }
   return { segs, text, at, rot, h: ts };
@@ -72,6 +72,7 @@ export function toDxf(dr, ts = 3.5) {
   w.addLType('DASHED', 'Dashed __ __ __', [5, -2.5]);
   w.addLType('DASHDOT', 'Dash dot __ . __ .', [8, -2.5, 0, -2.5]);
   w.addLayer('VISIBLE', 7, 'Continuous'); w.addLayer('HIDDEN', 8, 'DASHED'); w.addLayer('CONSTRUCTION', 8, 'DASHED');
+  w.addLayer('CENTER', 1, 'DASHDOT'); w.addLayer('ISO', 7, 'Continuous');
   w.addLayer('DIM', 3, 'Continuous'); w.addLayer('TEXT', 7, 'Continuous'); w.addLayer('FRAME', 7, 'Continuous');
   const P = p => point3d(p[0], p[1], 0);
   for (const e of dr.ents) {
@@ -88,7 +89,7 @@ export function toDxf(dr, ts = 3.5) {
     const lt = dr.style && dr.style.line === 'dashed' ? 'DASHED' : dr.style && dr.style.line === 'dashdot' ? 'DASHDOT' : undefined;
     for (const sg of g.segs) b.addLine(P(sg[0]), P(sg[1]), lt ? { layerName: 'DIM', lineType: lt } : { layerName: 'DIM' });
     b.addText(P(g.at), g.h, g.text, { layerName: 'DIM', rotation: g.rot, horizontalAlignment: 1, verticalAlignment: 2, secondAlignmentPoint: P(g.at) });
-    const o = { blockName: name, layerName: 'DIM' };
+    const o = { blockName: name, layerName: 'DIM', ...(d.dxfText ? { text: d.dxfText } : {}) };
     // 对齐尺寸按"旋转角＝两点连线方向"的线性尺寸写（该库的对齐尺寸在竖线上会被量成 0）
     if (d.kind === 'aligned') { const u = unit(sub(d.p2, d.p1)); w.addLinearDim(P(d.p1), P(d.p2), { ...o, angle: (Math.atan2(u[1], u[0]) * 180) / Math.PI, insertionPoint: P(d.at), offset: dot(sub(d.at, d.p1), [-u[1], u[0]]) }); }
     else if (d.kind === 'linear') w.addLinearDim(P(d.p1), P(d.p2), { ...o, angle: d.angle, insertionPoint: P(d.at), offset: d.angle === 0 ? d.at[1] - d.p1[1] : d.p1[0] - d.at[0] });

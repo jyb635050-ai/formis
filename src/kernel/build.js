@@ -243,7 +243,8 @@ export function makeKernel(R) {
 
   // 工程图投影：返回视图坐标系里的线段/圆/弧（visible / hidden）
   // 视线：主视从 −Y、俯视从 +Z、左视从 −X（第一角投影）；ProjectionCamera 的方向指向观察者
-  const CAMS = { front: [[0, -1, 0], [1, 0, 0]], top: [[0, 0, 1], [1, 0, 0]], left: [[-1, 0, 0], [0, -1, 0]] };
+  const r3 = 1 / Math.sqrt(3), r2 = 1 / Math.sqrt(2);
+  const CAMS = { front: [[0, -1, 0], [1, 0, 0]], top: [[0, 0, 1], [1, 0, 0]], left: [[-1, 0, 0], [0, -1, 0]], iso: [[r3, -r3, r3], [r2, r2, 0]] }; // iso：从右前上方看的正等轴测
   function project(solid, view) {
     const [dir, xAxis] = CAMS[view];
     const { visible, hidden } = R.drawProjection(solid, new R.ProjectionCamera([0, 0, 0], dir, xAxis));

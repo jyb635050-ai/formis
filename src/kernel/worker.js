@@ -57,7 +57,8 @@ function handle(msg) {
   } else if (msg.type === 'project') {
     if (!solid) throw new Error('还没有实体');
     const views = {};
-    for (const v of ['front', 'top', 'left']) views[v] = K.project(solid, v);
+    for (const v of ['front', 'top', 'left', 'iso']) views[v] = K.project(solid, v);
+    views.iso.hidden = [];
     postMessage({ type: 'done', id: msg.id, views, bbox: K.bboxOf(solid) });
   }
 }

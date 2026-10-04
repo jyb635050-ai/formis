@@ -40,7 +40,7 @@ const kernel = createKernel({
     S.built = m;
     for (const [sid, pl] of Object.entries(m.planes || {})) { const s = sketchById(sid); if (s) s.plane = pl; }
     view.setModel(m.mesh ? m : null);
-    renderTree(); renderInfo(); if (P && P.live) renderProps();
+    renderTree(); renderInfo(); if (P && P.live) updatePropsError();
     if (S.mode === 'sheet') refreshSheet();
     if (firstModel && m.mesh) { firstModel = false; view.viewTo('iso', true); }
     view.drawSketches();
@@ -157,7 +157,7 @@ function renderProps() {
   box.append(h('h3', {}, t('feat-' + P.feat)));
   if (spec.pick) box.append(h('div', { class: 'hint' }, `${t(spec.pick === 'edges' ? 'pickEdges' : 'pickFaces')} · ${t('selected')} ${T.pick ? T.pick.sel.length : 0}`));
   for (const [k, tid, def] of spec.fields) {
-    const inp = h('input', { type: 'number', step: 'any', min: '0', 'data-testid': tid, value: String(P.values[k] ?? def) });
+    const inp = h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', class: 'num', 'data-testid': tid, value: String(P.values[k] ?? def) });
     inp.addEventListener('input', () => { P.values[k] = parseFloat(inp.value); live(); });
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') okProps(); if (e.key === 'Escape') cancelProps(); e.stopPropagation(); });
     box.append(h('label', { class: 'row' }, h('span', {}, t(k)), inp));
@@ -173,10 +173,16 @@ function renderProps() {
     sel.addEventListener('change', () => { P.values.axis = sel.value; live(); });
     box.append(h('label', { class: 'row' }, h('span', {}, t('axis')), sel));
   }
-  const err = P.error || (P.fid && S.built && S.built.errors && S.built.errors[P.fid]);
-  if (err) box.append(h('div', { class: 'err' }, /封闭轮廓/.test(err) ? err + '。' + t('profileOpen') : err));
+  box.append(h('div', { class: 'err', hidden: true }));
+  updatePropsError();
   box.append(h('div', { class: 'btns' }, h('button', { 'data-testid': 'feat-cancel', onclick: cancelProps }, t('cancel')), h('button', { class: 'pri', 'data-testid': 'feat-ok', onclick: okProps }, t('ok'))));
   if (focused) { const f = box.querySelector(`[data-testid="${focused}"]`); if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) { } } }
+}
+// 重建完成后只更新错误提示，不重画输入框（重画会把光标甩到最前面）
+function updatePropsError() {
+  const el = $('#props .err'); if (!el || !P) return;
+  const err = P.error || (P.fid && S.built && S.built.errors && S.built.errors[P.fid]);
+  el.hidden = !err; el.textContent = err ? (/封闭轮廓/.test(err) ? err + '。' + t('profileOpen') : err) : '';
 }
 function paramsOf(spec, v) { const p = {}; for (const [k] of spec.fields) p[k] = v[k]; for (const c of spec.checks || []) p[c] = !!v[c]; if (spec.axis) p.axis = v.axis; return p; }
 // 面板开着时边改边重建（实时预览）；整个面板算一步撤销
@@ -195,7 +201,7 @@ async function okProps() {
     if (P.live) {
       live(); await idle();
       const err = S.built && S.built.errors && S.built.errors[P.fid];
-      if (err) { P.error = err; renderProps(); toast(err, true); return; }
+      if (err) { P.error = err; updatePropsError(); toast(err, true); return; }
       endLive(true);
     } else {
       const pts = T.pick.sel.map(q => q.point);
@@ -209,7 +215,7 @@ async function okProps() {
       if (err) { undo(); await idle(); throw new Error(err); }
     }
     setPick(null); closeProps();
-  } catch (e) { P.error = e.message; renderProps(); toast(e.message, true); }
+  } catch (e) { P.error = e.message; updatePropsError(); toast(e.message, true); }
 }
 // 找特征要用的草图：正在编辑的 → 选中的 → 最近一张还没用过、有封闭轮廓的
 function sketchForFeature() {
@@ -247,7 +253,7 @@ for (const b of $$('[data-feat]')) b.addEventListener('click', () => {
     else fid = api.cmd.extrude(sid, { depth: values.depth, cut: feat === 'cut', through: false, reverse: false });
   } catch (e) { endLive(false); return toast(e.message, true); }
   openProps({ kind: 'feat', feat, sketch: sid, values, live: true, fid });
-  setTimeout(() => { const i = $('#props input[type=number]'); i && i.focus(); i && i.select(); }, 30);
+  setTimeout(() => { const i = $('#props input.num'); i && i.focus(); i && i.select(); }, 30);
 });
 function editFeature(fid) {
   const f = featById(fid); if (!f) return;
@@ -257,7 +263,7 @@ function editFeature(fid) {
   const values = { ...f.params };
   beginLive();
   openProps({ kind: 'feat', feat, edit: fid, sketch: f.sketch, values, live: true, fid });
-  setTimeout(() => { const i = $('#props input[type=number]'); i && i.focus(); i && i.select(); }, 30);
+  setTimeout(() => { const i = $('#props input.num'); i && i.focus(); i && i.select(); }, 30);
 }
 
 // ───── 特征树 ─────
@@ -394,6 +400,9 @@ $('[data-testid="make-sheet"]').addEventListener('click', async () => {
   setMode('sheet');
 });
 $('[data-testid="sheet-size"]').addEventListener('change', e => { ops.setSheet({ size: e.target.value }); refreshSheet(); });
+$('#sheet-scale').addEventListener('change', e => { ops.setSheet({ scale: e.target.value === 'auto' ? 'auto' : +e.target.value }); SH.fitted = false; refreshSheet(); });
+$('#sheet-iso').addEventListener('change', e => { ops.setSheet({ iso: e.target.checked }); refreshSheet(); });
+$('#sheet-names').addEventListener('change', e => { ops.setSheet({ names: e.target.checked }); refreshSheet(); });
 let sheetBusy = null;
 async function refreshSheet() {
   if (!(S.built && S.built.measure.volume > 0)) { SH.data = null; SH.key = null; renderSheet(); return; }
@@ -402,7 +411,8 @@ async function refreshSheet() {
   if (sheetBusy && sheetBusy.key === key) return sheetBusy.p;
   const p = (async () => {
     const r = await kernel.call('project', {});
-    SH.data = buildSheet(r.views, r.bbox, (S.doc.sheet && S.doc.sheet.size) || 'A3', S.doc.name);
+    const so = S.doc.sheet || {};
+    SH.data = buildSheet(r.views, r.bbox, so.size || 'A3', S.doc.name, { scale: so.scale || 'auto', iso: so.iso !== false, names: so.names !== false });
     SH.key = key; SH.fitted = false; renderSheet();
   })();
   sheetBusy = { key, p }; try { await p; } finally { if (sheetBusy && sheetBusy.key === key) sheetBusy = null; }
@@ -415,7 +425,12 @@ function renderSheet() {
   host.innerHTML = '';
   const paper = h('div', { class: 'paper' }); paper.innerHTML = svg.replace(/^<\?xml[^>]*>\s*/, '');
   host.append(paper);
-  $('#sheetinfo').textContent = `${t('scale')} ${SH.data.scaleText} · ${t('sheetSize')} ${(S.doc.sheet && S.doc.sheet.size) || 'A3'}`;
+  const so = S.doc.sheet || {};
+  $('#sheet-scale').value = so.scale && so.scale !== 'auto' ? String(so.scale) : 'auto'; $('#sheet-iso').checked = so.iso !== false; $('#sheet-names').checked = so.names !== false;
+  $('#sheetinfo').innerHTML = '';
+  $('#sheetinfo').append(h('div', {}, `${t('scale')} ${SH.data.scaleText}${SH.data.auto ? '（' + t('autoShort') + '）' : ''} · ${t('sheetSize')} ${so.size || 'A3'}`));
+  if (SH.data.overflow) $('#sheetinfo').append(h('div', { class: 'warn' }, t('scaleOverflow')));
+  if (so.iso !== false && !SH.data.iso) $('#sheetinfo').append(h('div', {}, t('isoSkipped')));
   if (!SH.fitted) {
     const r = host.getBoundingClientRect(), [pw, ph] = SH.data.page;
     const k = Math.min((r.width - 300) / pw, (r.height - 140) / ph);

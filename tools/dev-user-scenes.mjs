@@ -121,3 +121,37 @@ export async function dims2({ p, click, drag, tap, shot, sleep }) {
   const dxf = await p.evaluate(async sid => { const { S: st } = {}; window.__cadActive = sid; return null; }, s3);
   console.log(JSON.stringify({ dims, labelsAfterSheet: labels }));
 }
+export async function sheet2({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY'); const R = await window.__fxRect(s);
+  }).catch(() => { });
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY');
+    const L = [[0, 0], [80, 0], [80, 60], [0, 60]].map((q, i, a) => C.line(s, q, a[(i + 1) % 4]));
+    for (const [x, y] of [[10, 10], [70, 10], [10, 50], [70, 50]]) C.circle(s, [x, y], 4);
+    C.finish(s); C.extrude(s, { depth: 10 }); await __cad.idle();
+    await C.fillet({ radius: 5, edges: [[0, 0, 5], [80, 0, 5], [80, 60, 5], [0, 60, 5]] });
+    const s2 = await C.sketch({ face: [40, 30, 10] }); C.circle(s2, [0, 0], 10); C.finish(s2); C.extrude(s2, { depth: 4, cut: true }); await __cad.idle();
+    document.querySelector('#pname').value = '安装板'; document.querySelector('#pname').dispatchEvent(new Event('change'));
+  });
+  await click('make-sheet'); await sleep(2500); await shot('v-sheet-plate');
+  await click('mode-3d'); await p.evaluate(async () => {
+    await __cad.reset(); const C = __cad.cmd; const s = await C.sketch('XZ');
+    const P = [[0, 0], [24, 0], [24, 97], [18, 97], [18, 40], [6, 40], [6, 97], [0, 97]];
+    P.forEach((q, i) => C.line(s, q, P[(i + 1) % P.length])); C.finish(s); C.extrude(s, { depth: 8 }); await __cad.idle();
+    document.querySelector('#pname').value = '立柱'; document.querySelector('#pname').dispatchEvent(new Event('change'));
+  });
+  await click('make-sheet'); await sleep(2500); await shot('w-sheet-tall');
+  console.log(await p.evaluate(() => document.querySelector('#sheetinfo').textContent));
+}
+export async function typing({ p, click, drag, tap, shot, sleep }) {
+  await click('new-sketch'); await sleep(300); await click('plane-XY'); await sleep(700);
+  await drag([600, 350], [850, 550]); await click('sketch-done'); await sleep(300);
+  await click('feat-extrude'); await sleep(600);
+  const inp = p.locator('[data-testid="feat-depth"]');
+  await inp.click(); await p.keyboard.press('Control+a'); await p.keyboard.press('Backspace');
+  for (const ch of '97.5') { await p.keyboard.type(ch); await sleep(500); }   // 每个字之间等实时重建完成
+  const v = await inp.inputValue();
+  await click('feat-ok'); await sleep(800);
+  console.log(JSON.stringify({ typed: v, depth: await p.evaluate(() => __cad.features()[0].params.depth) }));
+}

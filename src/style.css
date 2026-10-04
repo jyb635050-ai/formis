@@ -107,7 +107,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 #props h3 { margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
 #props .row { display: flex; align-items: center; gap: 8px; }
 #props .row > span { width: 64px; color: var(--fg2); }
-#props input[type=number], #props select { flex: 1; min-width: 0; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line2); background: var(--glass2); outline: none; user-select: text; }
+#props input.num, #props select { flex: 1; min-width: 0; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line2); background: var(--glass2); outline: none; user-select: text; }
 #props input:focus { box-shadow: 0 0 0 3px var(--accent2); }
 #props .btns { display: flex; gap: 8px; justify-content: flex-end; }
 #props .btns button, #props .pl { border: 0; padding: 8px 14px; border-radius: 10px; cursor: pointer; background: var(--line2); font-weight: 600; transition: transform .15s, filter .15s; }
@@ -176,3 +176,6 @@ body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 #dimstyle input[type=range] { flex: 1; }
 .mini-btn { border: 0; padding: 5px 10px; border-radius: 8px; background: var(--line2); cursor: pointer; font-size: 12px; }
 .dim-label.ro { cursor: pointer; opacity: .9; }
+
+#sheetbar .chk { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#sheetinfo .warn { color: var(--danger); font-weight: 600; }

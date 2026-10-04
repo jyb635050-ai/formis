@@ -83,6 +83,7 @@
 //   DXF：ezdxf 严格读取通过，audit 零错误零修复；$INSUNITS=4；草图每条线/圆/弧对应一个 LINE/CIRCLE/ARC（草图坐标原样，≤1e-6；弧角 ≤1e-4°）；
 //        每个尺寸是一个 DIMENSION，带有效几何块（*D…），ezdxf 量出的值与尺寸值相差 ≤1e-6（角度用度）；文字是 TEXT/MTEXT，中文原样。
 //        工程图 DXF：1:1 实际尺寸；图框、标题栏放在名字含 FRAME 的图层；三个视图各成一团（判卷按包围盒聚团），实线外形＝零件尺寸；
+//        （2026-10-04 领导批准修改：三视图之外允许再有一个轴测图团，即共 3 或 4 团）
 //        隐藏线用虚线线型（LTYPE 带虚线图案）；自动带总长、总宽、总高三个 DIMENSION；标题栏文字含项目名。
 //   SVG：浏览器 DOMParser 解析无错；有 viewBox，width/height 以 mm 结尾；图形元素数 ≥ 草图实体数；文字原样；渲染出来不是白板
 //   PDF：pypdf 能读；页面 A4 或 A3（横竖都行，误差 2pt）；矢量（画线指令 ≥10、没有位图）；文字可提取（中文原样，尺寸数字搜得到）
@@ -1056,8 +1057,10 @@ async function gSheet(browser) {
     const ms = j.dims.map(d => d.measurement);
     const dimsOk = [80, 60, 10].every(v => ms.some(m => Math.abs(m - v) <= 1e-6)) && j.dims.every(d => d.blockOk);
     const name = j.texts.some(t => t.includes('测试零件甲'));
-    const ok = !j.auditErrors.length && !j.auditFixes.length && j.insunits === 4 && cl.length === 3 && lay && hid && dimsOk && name;
-    return [ok, `audit 错 ${j.auditErrors.length} 修 ${j.auditFixes.length}；$INSUNITS=${j.insunits}；视图团数 ${cl.length}（要 3：${cl.map(c => f2(c.w) + '×' + f2(c.h)).join(' ')}）；主视 80×10 ${!!F}、俯视 80×60 ${!!T}、左视 60×10 ${!!L}、第一角布局 ${lay}；主视/左视虚线 ${F ? F.dashed : '-'}/${L ? L.dashed : '-'}（各≥4）；外形尺寸 80/60/10 且几何块有效 ${dimsOk}；标题栏项目名 ${name}`];
+    // 2026-10-04 领导批准：三视图之外允许再有一个轴测图（共 3 或 4 团，其中三团必须是主/俯/左视）
+    const nViews = (cl.length === 3 || (cl.length === 4 && F && T && L && new Set([F, T, L]).size === 3));
+    const ok = !j.auditErrors.length && !j.auditFixes.length && j.insunits === 4 && nViews && lay && hid && dimsOk && name;
+    return [ok, `audit 错 ${j.auditErrors.length} 修 ${j.auditFixes.length}；$INSUNITS=${j.insunits}；视图团数 ${cl.length}（要 3，或 3＋1 个轴测图：${cl.map(c => f2(c.w) + '×' + f2(c.h)).join(' ')}）；主视 80×10 ${!!F}、俯视 80×60 ${!!T}、左视 60×10 ${!!L}、第一角布局 ${lay}；主视/左视虚线 ${F ? F.dashed : '-'}/${L ? L.dashed : '-'}（各≥4）；外形尺寸 80/60/10 且几何块有效 ${dimsOk}；标题栏项目名 ${name}`];
   });
   await chk('sheet.pdf', async () => {
     const { f } = await getFile(page, 'pdf'); const j = py('check_pdf.py', f);
