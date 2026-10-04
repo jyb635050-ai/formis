@@ -1,0 +1,11 @@
+{
+  "name": "glasscad-judge",
+  "private": true,
+  "type": "module",
+  "description": "判卷专用依赖（与网站无关）。安装：npm ci --prefix tools/judge",
+  "dependencies": {
+    "fflate": "0.8.3",
+    "replicad": "1.1.0",
+    "replicad-opencascadejs": "1.1.0"
+  }
+}
