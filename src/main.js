@@ -1,5 +1,5 @@
 import './style.css';
-import { S, on, emit, ops, txn, undo, redo, loadSaved, loadDoc, resetDoc, sketchById, featById, sketchView, refOf, saveNow, beginLive, endLive } from './doc.js';
+import { S, on, emit, ops, txn, undo, redo, loadSaved, loadDoc, resetDoc, sketchById, featById, sketchView, refOf, saveNow, beginLive, endLive, dimStyle } from './doc.js';
 import { initSolver } from './solver.js';
 import { createKernel } from './kernel/client.js';
 import * as view from './view.js';
@@ -75,10 +75,13 @@ function setMode(m) {
     view.showModel(false); requestAnimationFrame(() => view.lookAtSketch(sid, true));
   } else if (m === '3d') {
     if (S.mode === '2d' && S.active === S.doc.drawing2d) S.active = null;
+    if (S.mode === 'sheet' && S.resume && sketchById(S.resume)) { S.active = S.resume; S.selSketch = S.resume; }
+    S.resume = null;
     S.mode = '3d'; syncMode(); view.showModel(true);
     if (S.active) requestAnimationFrame(() => view.lookAtSketch(S.active, true)); else view.viewTo('iso', true);
   } else {
     if (S.mode === '2d' && S.active === S.doc.drawing2d) S.active = null;
+    S.resume = S.mode === '3d' ? S.active : null; // 回到三维时接着编辑这张草图
     if (S.active) ops.finish();
     S.mode = 'sheet'; syncMode(); refreshSheet();
   }
@@ -304,6 +307,24 @@ function renderStatus() {
   if (!ready.kernel) s = t('kernelLoading') + ' · ' + s;
   el.textContent = s;
 }
+
+// ───── 尺寸样式 ─────
+function syncDimStyle() {
+  const st = dimStyle();
+  $('#ds-line').value = st.line; $('#ds-arrow').value = st.arrow;
+  $('#ds-color').value = st.color || (document.documentElement.dataset.theme === 'dark' ? '#b8c2d3' : '#3a4a60');
+  $('#ds-text').value = st.text; $('#ds-text-v').textContent = st.text + 'px';
+  $('#ds-show').checked = S.showDims !== false;
+}
+$('#dim-style-btn').addEventListener('click', () => { const p = $('#dimstyle'); p.hidden = !p.hidden; $('#dim-style-btn').classList.toggle('on', !p.hidden); syncDimStyle(); });
+$('#ds-line').addEventListener('change', e => ops.setDimStyle({ line: e.target.value }));
+$('#ds-arrow').addEventListener('change', e => ops.setDimStyle({ arrow: e.target.value }));
+$('#ds-color').addEventListener('change', e => ops.setDimStyle({ color: e.target.value }));
+$('#ds-color-reset').addEventListener('click', e => { e.preventDefault(); ops.setDimStyle({ color: '' }); syncDimStyle(); });
+$('#ds-text').addEventListener('input', e => { $('#ds-text-v').textContent = e.target.value + 'px'; });
+$('#ds-text').addEventListener('change', e => ops.setDimStyle({ text: +e.target.value }));
+$('#ds-show').addEventListener('change', e => { S.showDims = e.target.checked; view.drawSketches(); });
+document.addEventListener('pointerdown', e => { const p = $('#dimstyle'); if (!p.hidden && !p.contains(e.target) && !e.target.closest('#dim-style-btn')) { p.hidden = true; $('#dim-style-btn').classList.remove('on'); } });
 
 // ───── 视图按钮 ─────
 for (const b of $$('[data-view]')) b.addEventListener('click', () => { if (S.mode !== '3d') setMode('3d'); const v = b.dataset.view; if (v === 'fit') view.fitAll(); else view.viewTo(v); });

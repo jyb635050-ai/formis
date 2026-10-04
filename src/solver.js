@@ -71,6 +71,8 @@ function prims(sk, drag) {
       case 'vdist': P.push({ id: d.id, type: 'difference', param1: { o_id: p, prop: 'y' }, param2: { o_id: q, prop: 'y' }, difference: d.sign * v }); break;
       case 'radius': P.push(kp === 'arc' ? { id: d.id, type: 'arc_radius', a_id: p, radius: v } : { id: d.id, type: 'circle_radius', c_id: p, radius: v }); break;
       case 'diameter': P.push(kp === 'arc' ? { id: d.id, type: 'arc_diameter', a_id: p, diameter: v } : { id: d.id, type: 'circle_diameter', c_id: p, diameter: v }); break;
+      case 'pldist': P.push({ id: d.id, type: 'p2l_distance', p_id: p, l_id: q, distance: v }); break; // 点到直线（无限长）的垂直距离
+      case 'ldist': P.push({ id: d.id, type: 'p2l_distance', p_id: p + '.a', l_id: q, distance: v }); break; // 两条平行线间距
       case 'angle': P.push({ id: d.id, type: 'l2l_angle_ll', l1_id: p, l2_id: q, angle: d.sign * rad(v) }); break;
       default: throw new Error('不支持的尺寸 ' + d.type);
     }

@@ -3,7 +3,7 @@ import { solveSketch, ptOf, kindOf } from './solver.js';
 import { PLANES, describe, planeAt, V } from './kernel/build.js';
 
 const KEY = 'glasscad.doc.v1';
-export function newDoc() { return { v: 1, seq: 1, name: '', sketches: [], features: [], drawing2d: null, sheet: { size: 'A3' } }; }
+export function newDoc() { return { v: 1, seq: 1, name: '', sketches: [], features: [], drawing2d: null, sheet: { size: 'A3' }, dimStyle: null }; }
 
 export const S = {
   doc: newDoc(),
@@ -56,21 +56,47 @@ function sk(id) { const s = sketchById(id); if (!s) throw new Error('草图不�
 export function ownerSketch(entId) { return S.doc.sketches.find(s => s.ents.some(e => e.id === entId) || s.cons.some(c => c.id === entId) || s.dims.some(d => d.id === entId)); }
 
 // 尺寸数字的显示位置（草图坐标）
+// 线性类尺寸的两个"定义点"（尺寸线就画在这两点之间的方向上）
+const footOn = (p, l) => { const dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1], L2 = dx * dx + dy * dy || 1, t = ((p[0] - l.a[0]) * dx + (p[1] - l.a[1]) * dy) / L2; return [l.a[0] + dx * t, l.a[1] + dy * t]; };
+export function dimPoints(s, d, at) {
+  const E = id => s.ents.find(x => x.id === id);
+  if (d.type === 'length') return [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')];
+  if (d.type === 'pldist') { const p = ptOf(s, d.refs[0]); return [p, footOn(p, E(d.refs[1]))]; }
+  if (d.type === 'ldist') {
+    // 两条平行线：取第一条线上离数字最近的点，再垂直落到第二条线上
+    const l1 = E(d.refs[0]), l2 = E(d.refs[1]);
+    let p = at ? footOn(at, l1) : [(l1.a[0] + l1.b[0]) / 2, (l1.a[1] + l1.b[1]) / 2];
+    return [p, footOn(p, l2)];
+  }
+  return [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
+}
+export function dimBase(s, d) {
+  if (d.type === 'radius' || d.type === 'diameter') return s.ents.find(x => x.id === d.refs[0]).c;
+  if (d.type === 'angle') return s.ents.find(x => x.id === d.refs[0]).a;
+  const [p, q] = dimPoints(s, d);
+  return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+}
 export function dimLabel(s, d) {
   try {
     const off = d.off || [0, 0];
     if (d.type === 'radius' || d.type === 'diameter') { const e = s.ents.find(x => x.id === d.refs[0]); const ang = Math.atan2(off[1], off[0]) || Math.PI / 4; const L = Math.max(e.r + 4, Math.hypot(off[0], off[1])); return [e.c[0] + L * Math.cos(ang), e.c[1] + L * Math.sin(ang)]; }
-    if (d.type === 'angle') { const l = s.ents.find(x => x.id === d.refs[0]); return [l.a[0] + off[0], l.a[1] + off[1]]; }
-    const [p, q] = d.type === 'length' ? [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')] : [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
-    return [(p[0] + q[0]) / 2 + off[0], (p[1] + q[1]) / 2 + off[1]];
+    const b = dimBase(s, d);
+    return [b[0] + off[0], b[1] + off[1]];
   } catch (e) { return [0, 0]; }
 }
-// 把尺寸数字挪到草图坐标 uv（拖动数字用，不存撤销点）
-export function dimBase(s, d) {
-  if (d.type === 'radius' || d.type === 'diameter') return s.ents.find(x => x.id === d.refs[0]).c;
-  if (d.type === 'angle') return s.ents.find(x => x.id === d.refs[0]).a;
-  const [p, q] = d.type === 'length' ? [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')] : [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
-  return [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+// 尺寸当前量出来的值（加尺寸前用）
+export function measureDim(s, type, refs) {
+  const E = id => s.ents.find(x => x.id === id), D = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (type === 'length') { const e = E(refs[0]); return D(e.a, e.b); }
+  if (type === 'diameter') return 2 * E(refs[0]).r;
+  if (type === 'radius') return E(refs[0]).r;
+  if (type === 'angle') { const [l1, l2] = refs.map(E); const u = [l1.b[0] - l1.a[0], l1.b[1] - l1.a[1]], v = [l2.b[0] - l2.a[0], l2.b[1] - l2.a[1]]; const c = Math.abs(u[0] * v[0] + u[1] * v[1]) / (Math.hypot(...u) * Math.hypot(...v)); return Math.acos(Math.min(1, c)) * 180 / Math.PI; }
+  if (type === 'pldist') { const p = ptOf(s, refs[0]); return D(p, footOn(p, E(refs[1]))); }
+  if (type === 'ldist') { const l1 = E(refs[0]); return D(l1.a, footOn(l1.a, E(refs[1]))); }
+  const p = ptOf(s, refs[0]), q = ptOf(s, refs[1]);
+  if (type === 'hdist') return Math.abs(q[0] - p[0]);
+  if (type === 'vdist') return Math.abs(q[1] - p[1]);
+  return D(p, q);
 }
 export function moveDimLabel(s, d, uv) { const b = dimBase(s, d); d.off = [uv[0] - b[0], uv[1] - b[1]]; }
 export function sketchView(id) {
@@ -181,6 +207,7 @@ export const ops = {
   setParam(fid, p) { const f = featById(fid); if (!f) throw new Error('找不到特征 ' + fid); snap(); Object.assign(f.params, JSON.parse(JSON.stringify(p))); changed(); },
   suppress(fid, onoff) { const f = featById(fid); if (!f) throw new Error('找不到特征 ' + fid); snap(); f.suppressed = !!onoff; changed(); },
   rename(name) { if ((S.doc.name || '') === name) return; snap(); S.doc.name = String(name); changed(); },
+  setDimStyle(p) { snap(); S.doc.dimStyle = { ...dimStyle(), ...p }; changed(); emit('sketch'); },
   setSheet(p) { snap(); S.doc.sheet = { ...(S.doc.sheet || {}), ...p }; changed(); },
 };
 function ptOrEnt(s, r) { const [id] = r.split('.'); if (!s.ents.some(e => e.id === id)) throw new Error('草图里没有 ' + r); }
@@ -188,11 +215,15 @@ function defaultOff(s, type, refs) {
   try {
     if (type === 'radius' || type === 'diameter') return [8, 8];
     if (type === 'angle') return [10, 5];
-    const [p, q] = type === 'length' ? [ptOf(s, refs[0] + '.a'), ptOf(s, refs[0] + '.b')] : [ptOf(s, refs[0]), ptOf(s, refs[1])];
     if (type === 'hdist') return [0, -8]; if (type === 'vdist') return [8, 0];
-    const d = [q[0] - p[0], q[1] - p[1]], L = Math.hypot(d[0], d[1]) || 1; return [(-d[1] / L) * 8, (d[0] / L) * 8];
+    const [p, q] = dimPoints(s, { type, refs });
+    const d = [q[0] - p[0], q[1] - p[1]], L = Math.hypot(d[0], d[1]) || 1;
+    if (type === 'pldist' || type === 'ldist') return [(d[1] / L) * 6, (-d[0] / L) * 6];
+    return [(-d[1] / L) * 8, (d[0] / L) * 8];
   } catch (e) { return [0, -8]; }
 }
+export const DIM_STYLE = { line: 'solid', arrow: 'arrow', color: '', text: 12 };
+export const dimStyle = () => ({ ...DIM_STYLE, ...(S.doc.dimStyle || {}) });
 // 把三维点变成"边/面引用"（相对当前实体包围盒）
 export function refOf(p) { const B = S.built; if (!B || !B.measure || !(B.measure.volume > 0)) throw new Error('还没有实体'); return describe(B.measure.bbox, p.map(Number)); }
 export { kindOf, ptOf };

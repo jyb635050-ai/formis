@@ -1,6 +1,6 @@
 // 视口：three.js 正交相机。右键拖动旋转（二维里是平移）、中键平移、滚轮以光标为中心缩放；拾取面/边；画实体、草图、尺寸
 import * as THREE from 'three';
-import { S, dimLabel, sketchById } from './doc.js';
+import { S, dimLabel, sketchById, dimPoints, dimStyle } from './doc.js';
 import { toWorld, arcPoints, V } from './kernel/build.js';
 import { ptOf } from './solver.js';
 import { fmt } from './util.js';
@@ -412,10 +412,10 @@ export function drawSketches() {
         const op = new THREE.Points(og, new THREE.PointsMaterial({ color: 0xe5484d, size: 9, sizeAttenuation: false, depthTest: false })); op.renderOrder = 12; sketchGrp.add(op);
       }
       // 尺寸
-      for (const d of s.dims) drawDim(s, d);
-      if (sketchState.dimPreview) drawDim(s, sketchState.dimPreview, true);
+      if (sketchState.dimPreview) drawDim(s, sketchState.dimPreview, true, true);
       for (const e of s.ents) if (e.type === 'text') textLabel(s, e);
     }
+    if (S.showDims !== false) for (const d of s.dims) drawDim(s, d, false, editing);
     if (sketchState.preview && editing && sketchState.preview.length) sketchGrp.add(segObj(pl, sketchState.preview, theme.preview));
   }
   placeLabels(); // 重建的标签立刻放到位，否则这一帧里点不中尺寸数字
@@ -428,49 +428,90 @@ function drawGrid(pl) {
   const b = segObj(pl, major, theme.grid); b.renderOrder = 1; b.material.opacity = 0.7; grid.add(b);
   const ax = segObj(pl, [[[0, 0], [12, 0]]], 0xe5484d); const ay = segObj(pl, [[[0, 0], [0, 12]]], 0x30a46c); grid.add(ax, ay);
 }
+// 线型：把线段按图案切成小段（mm）。dashed＝虚线，dashdot＝点划线
+export function patternSegs(segs, line, k) {
+  if (!line || line === 'solid') return segs;
+  const pat = line === 'dashed' ? [6, 3.5] : [10, 3, 1.5, 3];
+  const P = pat.map(v => v / k); const out = [];
+  for (const [a, b] of segs) {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 1e-9) continue;
+    const u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L];
+    let t = 0, i = 0;
+    while (t < L) { const len = P[i % P.length]; if (i % 2 === 0) { const t1 = Math.min(L, t + len); out.push([[a[0] + u[0] * t, a[1] + u[1] * t], [a[0] + u[0] * t1, a[1] + u[1] * t1]]); } t += len; i++; }
+  }
+  return out;
+}
 // 尺寸：尺寸界线垂直于被标注的方向，尺寸线与之平行；数字可以沿尺寸线放，放到界线外面时尺寸线跟着延长
-function drawDim(s, d, preview) {
-  const pl = s.plane, L = dimLabel(s, d), segs = [];
+const clampOn = (p, l) => { const dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1], L2 = dx * dx + dy * dy || 1; let t = ((p[0] - l.a[0]) * dx + (p[1] - l.a[1]) * dy) / L2; t = Math.max(0, Math.min(1, t)); return [l.a[0] + dx * t, l.a[1] + dy * t]; };
+function drawDim(s, d, preview, editing) {
+  const pl = s.plane, L = dimLabel(s, d), lines = [], heads = [];
+  const st = dimStyle();
   try {
     if (d.type === 'radius' || d.type === 'diameter') {
       const e = s.ents.find(x => x.id === d.refs[0]); const dir = V.norm([L[0] - e.c[0], L[1] - e.c[1], 0]);
       const p1 = [e.c[0] + dir[0] * e.r, e.c[1] + dir[1] * e.r];
-      if (d.type === 'diameter') segs.push([[e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], L]); else segs.push([e.c, L]);
-      arrow(segs, p1, [dir[0], dir[1]]);
-      if (d.type === 'diameter') arrow(segs, [e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], [-dir[0], -dir[1]]);
-    } else if (d.type !== 'angle') {
-      const [p, q] = d.type === 'length' ? [ptOf(s, d.refs[0] + '.a'), ptOf(s, d.refs[0] + '.b')] : [ptOf(s, d.refs[0]), ptOf(s, d.refs[1])];
-      // 尺寸方向 u：水平尺寸＝X，竖直尺寸＝Y，长度/距离＝两点连线
+      if (d.type === 'diameter') lines.push([[e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], L]); else lines.push([e.c, L]);
+      arrow(heads, p1, [dir[0], dir[1]], st.arrow);
+      if (d.type === 'diameter') arrow(heads, [e.c[0] - dir[0] * e.r, e.c[1] - dir[1] * e.r], [-dir[0], -dir[1]], st.arrow);
+    } else if (d.type === 'angle') {
+      // 两线交点为圆心、到数字的距离为半径画一段圆弧
+      const l1 = s.ents.find(x => x.id === d.refs[0]), l2 = s.ents.find(x => x.id === d.refs[1]);
+      const u = [l1.b[0] - l1.a[0], l1.b[1] - l1.a[1]], v = [l2.b[0] - l2.a[0], l2.b[1] - l2.a[1]], den = u[0] * v[1] - u[1] * v[0];
+      if (Math.abs(den) > 1e-12) {
+        const t = ((l2.a[0] - l1.a[0]) * v[1] - (l2.a[1] - l1.a[1]) * v[0]) / den, X = [l1.a[0] + u[0] * t, l1.a[1] + u[1] * t];
+        const r = Math.hypot(L[0] - X[0], L[1] - X[1]);
+        const far = l => (Math.hypot(l.a[0] - X[0], l.a[1] - X[1]) > Math.hypot(l.b[0] - X[0], l.b[1] - X[1]) ? l.a : l.b);
+        let a1 = Math.atan2(far(l1)[1] - X[1], far(l1)[0] - X[0]), a2 = Math.atan2(far(l2)[1] - X[1], far(l2)[0] - X[0]);
+        let sw = a2 - a1; while (sw > Math.PI) sw -= 2 * Math.PI; while (sw < -Math.PI) sw += 2 * Math.PI;
+        const n = 32; for (let i = 0; i < n; i++) { const q0 = a1 + sw * i / n, q1 = a1 + sw * (i + 1) / n; lines.push([[X[0] + r * Math.cos(q0), X[1] + r * Math.sin(q0)], [X[0] + r * Math.cos(q1), X[1] + r * Math.sin(q1)]]); }
+        for (const [l, ang] of [[l1, a1], [l2, a1 + sw]]) { const e = [X[0] + r * Math.cos(ang), X[1] + r * Math.sin(ang)], fp = far(l); if (Math.hypot(fp[0] - X[0], fp[1] - X[1]) < r) lines.push([fp, e]); }
+      }
+    } else {
+      const [p, q] = dimPoints(s, d, L);
+      // 尺寸方向 u：水平尺寸＝X，竖直尺寸＝Y，其余＝两个定义点的连线
       let u = d.type === 'hdist' ? [1, 0] : d.type === 'vdist' ? [0, 1] : [q[0] - p[0], q[1] - p[1]];
       const ul = Math.hypot(u[0], u[1]) || 1; u = [u[0] / ul, u[1] / ul];
       const n = [-u[1], u[0]];
       const off = pp => (L[0] - pp[0]) * n[0] + (L[1] - pp[1]) * n[1];
       const a = [p[0] + n[0] * off(p), p[1] + n[1] * off(p)], b = [q[0] + n[0] * off(q), q[1] + n[1] * off(q)];
       const ext = k => 1.5 / Math.max(0.3, C.scale / 4) * Math.sign(k || 1);
-      segs.push([p, [a[0] + n[0] * ext(off(p)), a[1] + n[1] * ext(off(p))]], [q, [b[0] + n[0] * ext(off(q)), b[1] + n[1] * ext(off(q))]], [a, b]);
+      const E = id => s.ents.find(x => x.id === id);
+      // 尺寸界线：从图形引到尺寸线（线到线、点到线时从线段上最近的点引出）
+      const fromP = d.type === 'ldist' ? clampOn(p, E(d.refs[0])) : p, fromQ = (d.type === 'ldist' || d.type === 'pldist') ? clampOn(q, E(d.refs[1])) : q;
+      const extTo = (from, at, k) => { const dir = [at[0] - from[0], at[1] - from[1]], dl = Math.hypot(...dir); if (dl < 1e-9) return; lines.push([from, [at[0] + dir[0] / dl * Math.abs(ext(k)), at[1] + dir[1] / dl * Math.abs(ext(k))]]); };
+      extTo(fromP, a, off(p)); extTo(fromQ, b, off(q));
+      lines.push([a, b]);
       const dd = [b[0] - a[0], b[1] - a[1]], len = Math.hypot(dd[0], dd[1]) || 1, du = [dd[0] / len, dd[1] / len];
-      // 数字在界线外面：尺寸线延长到数字处
       const tpos = (L[0] - a[0]) * du[0] + (L[1] - a[1]) * du[1];
-      if (tpos < 0) segs.push([a, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
-      if (tpos > len) segs.push([b, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
-      if (len * C.scale < 28) {
-        // 尺寸太短放不下箭头：箭头翻到界线外侧朝里指
+      if (tpos < 0) lines.push([a, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
+      if (tpos > len) lines.push([b, [a[0] + du[0] * tpos, a[1] + du[1] * tpos]]);
+      if (len * C.scale < 28 && st.arrow === 'arrow') {
         const k = 18 / C.scale;
-        segs.push([a, [a[0] - du[0] * k, a[1] - du[1] * k]], [b, [b[0] + du[0] * k, b[1] + du[1] * k]]);
-        arrow(segs, a, du); arrow(segs, b, [-du[0], -du[1]]);
-      } else { arrow(segs, a, [-du[0], -du[1]]); arrow(segs, b, du); }
+        lines.push([a, [a[0] - du[0] * k, a[1] - du[1] * k]], [b, [b[0] + du[0] * k, b[1] + du[1] * k]]);
+        arrow(heads, a, du, st.arrow); arrow(heads, b, [-du[0], -du[1]], st.arrow);
+      } else { arrow(heads, a, [-du[0], -du[1]], st.arrow); arrow(heads, b, du, st.arrow); }
     }
   } catch (e) { }
-  if (segs.length) sketchGrp.add(segObj(pl, segs, preview ? theme.hover : theme.dim));
-  const el = document.createElement('div'); el.className = 'dim-label' + (sketchState.sel.has(d.id) ? ' sel' : '') + (preview ? ' preview' : '');
-  if (!preview) el.dataset.dim = d.id;
+  const color = preview ? theme.hover : st.color ? new THREE.Color(st.color).getHex() : theme.dim;
+  const segs = patternSegs(lines, st.line, C.scale).concat(heads);
+  if (segs.length) sketchGrp.add(segObj(pl, segs, color));
+  const el = document.createElement('div'); el.className = 'dim-label' + (sketchState.sel.has(d.id) ? ' sel' : '') + (preview ? ' preview' : '') + (editing === false ? ' ro' : '');
+  if (!preview) { el.dataset.dim = d.id; el.dataset.sk = s.id; }
+  el.style.fontSize = (st.text || 12) + 'px';
+  if (st.color) el.style.color = st.color;
   el.textContent = (d.type === 'diameter' ? 'Ø' : d.type === 'radius' ? 'R' : '') + fmt(d.value) + (d.type === 'angle' ? '°' : '');
   el.dataset.wx = JSON.stringify(toWorld(pl, L)); labels.appendChild(el);
 }
-function arrow(segs, tip, dir) {
+function arrow(segs, tip, dir, kind = 'arrow') {
   const k = 2.2 / Math.max(0.5, C.scale / 4), n = [-dir[1], dir[0]];
+  if (kind === 'tick') { // 建筑斜线
+    const t = [(dir[0] + n[0]) * k * 0.8, (dir[1] + n[1]) * k * 0.8];
+    segs.push([[tip[0] - t[0], tip[1] - t[1]], [tip[0] + t[0], tip[1] + t[1]]]); return;
+  }
+  if (kind === 'dot') { const r = k * 0.45; for (let i = 0; i < 10; i++) { const a0 = i / 10 * Math.PI * 2, a1 = (i + 1) / 10 * Math.PI * 2; segs.push([[tip[0] + r * Math.cos(a0), tip[1] + r * Math.sin(a0)], [tip[0] + r * Math.cos(a1), tip[1] + r * Math.sin(a1)]]); } return; }
   const b1 = [tip[0] - dir[0] * k * 1.6 + n[0] * k * 0.5, tip[1] - dir[1] * k * 1.6 + n[1] * k * 0.5], b2 = [tip[0] - dir[0] * k * 1.6 - n[0] * k * 0.5, tip[1] - dir[1] * k * 1.6 - n[1] * k * 0.5];
   segs.push([tip, b1], [tip, b2]);
+  if (kind === 'arrow') segs.push([b1, b2]);
 }
 function textLabel(s, e) {
   const el = document.createElement('div'); el.className = 'dim-label sk-text'; el.setAttribute('data-user-content', '');

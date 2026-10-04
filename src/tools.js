@@ -1,6 +1,6 @@
 // 鼠标工具：草图里画线/矩形/圆/圆弧（点两下或按住拖都行）、对象捕捉、水平竖直参考线、光标旁实时尺寸、键盘输数、
 // 智能尺寸、选择（点选/框选/拖点）；三维里悬停高亮、点选草图、选平面、选边、选面
-import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf, moveDimLabel } from './doc.js';
+import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf, moveDimLabel, dimBase, measureDim } from './doc.js';
 import { solveSketch } from './solver.js';
 import { arcPoints } from './kernel/build.js';
 import * as view from './view.js';
@@ -49,7 +49,7 @@ function showReadout(x, y, lines) {
 }
 
 export function setTool(name) {
-  T.tool = name; T.st = {}; view.setSketchState({ preview: [] }); clearOverlay(); closeNum();
+  T.tool = name; T.st = {}; view.setSketchState({ preview: [], dimPreview: null }); clearOverlay(); closeNum();
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === name));
   host.dataset.tool = name;
 }
@@ -343,26 +343,55 @@ function dimmedPoints(s) {
 function lockedAt(s, uv) { return dimmedPoints(s).some(p => Math.hypot(p[0] - uv[0], p[1] - uv[1]) < 1e-6); }
 
 // ───── 智能尺寸 ─────
+// 智能尺寸：先点一个对象，可再点第二个对象（组合），最后点空白处放数字
+//   线 → 长度；圆 → 直径；圆弧 → 半径；点+点 → 距离（按放的位置自动水平/竖直/直线）
+//   两条平行线 → 间距；两条不平行线 → 角度；点/圆心 + 线 → 垂直距离；圆 + 圆 → 圆心距
+function pickTarget(s, x, y) {
+  const hp = hitPoint(s, x, y); if (hp) return { kind: 'pt', ref: hp.ref, id: hp.ref.split('.')[0] };
+  const he = hitEnt(s, x, y); if (he) return { kind: he.ent.type, ent: he.ent, id: he.id };
+  return null;
+}
+function single(t) {
+  if (t.kind === 'line') return { type: 'length', refs: [t.id] };
+  if (t.kind === 'circle') return { type: 'diameter', refs: [t.id] };
+  if (t.kind === 'arc') return { type: 'radius', refs: [t.id] };
+  return null;
+}
+function combine(a, b) {
+  const pt = t => (t.kind === 'pt' ? t.ref : t.kind === 'circle' || t.kind === 'arc' ? t.id + '.c' : null);
+  if (a.kind === 'line' && b.kind === 'line') {
+    const u = [a.ent.b[0] - a.ent.a[0], a.ent.b[1] - a.ent.a[1]], v = [b.ent.b[0] - b.ent.a[0], b.ent.b[1] - b.ent.a[1]];
+    const cr = Math.abs(u[0] * v[1] - u[1] * v[0]) / (Math.hypot(...u) * Math.hypot(...v) || 1);
+    return cr < 0.02 ? { type: 'ldist', refs: [a.id, b.id] } : { type: 'angle', refs: [a.id, b.id] };
+  }
+  if (a.kind === 'line' && pt(b)) return { type: 'pldist', refs: [pt(b), a.id] };
+  if (b.kind === 'line' && pt(a)) return { type: 'pldist', refs: [pt(a), b.id] };
+  if (pt(a) && pt(b) && pt(a) !== pt(b)) return { type: 'distance', refs: [pt(a), pt(b)] };
+  return null;
+}
 // 根据鼠标位置决定尺寸类型和数字偏移：两点距离放在上下方＝水平尺寸，左右＝竖直尺寸，斜着＝两点直线距离
 function decideDim(s, st, uv) {
-  let type = st.type; const refs = st.refs; let off;
-  if (type === 'radius' || type === 'diameter') { const e = s.ents.find(q => q.id === refs[0]); off = [uv[0] - e.c[0], uv[1] - e.c[1]]; }
-  else {
-    const [p, q] = type === 'length' ? [ptOf(s, refs[0] + '.a'), ptOf(s, refs[0] + '.b')] : [ptOf(s, refs[0]), ptOf(s, refs[1])];
-    const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]; off = [uv[0] - mid[0], uv[1] - mid[1]];
-    if (type === 'distance') {
-      const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]);
-      if (dx > 1e-6 && dy > 1e-6) {
-        // 鼠标在两点的竖向范围之外（上方/下方）→ 水平尺寸；在横向范围之外（左/右）→ 竖直尺寸；否则直线距离
-        const outY = uv[1] > Math.max(p[1], q[1]) || uv[1] < Math.min(p[1], q[1]), outX = uv[0] > Math.max(p[0], q[0]) || uv[0] < Math.min(p[0], q[0]);
-        if (outY && !outX) type = 'hdist'; else if (outX && !outY) type = 'vdist';
-      } else type = dy < 1e-6 ? 'hdist' : 'vdist';
-    }
+  let type = st.type; const refs = st.refs;
+  if (type === 'distance') {
+    const p = ptOf(s, refs[0]), q = ptOf(s, refs[1]);
+    const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]);
+    if (dx > 1e-6 && dy > 1e-6) {
+      const outY = uv[1] > Math.max(p[1], q[1]) || uv[1] < Math.min(p[1], q[1]), outX = uv[0] > Math.max(p[0], q[0]) || uv[0] < Math.min(p[0], q[0]);
+      if (outY && !outX) type = 'hdist'; else if (outX && !outY) type = 'vdist';
+    } else type = dy < 1e-6 ? 'hdist' : 'vdist';
   }
-  return { type, refs, off, value: currentValue(s, type, refs) };
+  const d = { type, refs };
+  const base = dimBase(s, d);
+  return { type, refs, off: [uv[0] - base[0], uv[1] - base[1]], value: measureDim(s, type, refs) };
 }
 function dimDown(s, x, y) {
   const st = T.st;
+  const tg = pickTarget(s, x, y);
+  // 已经选了第一个对象，又点到另一个对象 → 组合成两对象尺寸
+  if (tg && st.first && tg.id !== st.first.id && !st.combined) {
+    const c = combine(st.first, tg);
+    if (c) { T.st = { place: true, combined: true, first: st.first, ...c }; view.setSketchState({ sel: new Set([st.first.id, tg.id]) }); return; }
+  }
   if (st.place) {
     const uv = view.screenToPlane(s.plane, x, y); if (!uv) return;
     const d = decideDim(s, st, uv);
@@ -372,28 +401,12 @@ function dimDown(s, x, y) {
     catch (err) { toast(err.message, true); }
     return;
   }
-  const hp = hitPoint(s, x, y);
-  if (hp) {
-    if (st.first) { if (st.first !== hp.ref) T.st = { place: true, type: 'distance', refs: [st.first, hp.ref] }; return; }
-    T.st = { first: hp.ref }; view.setSketchState({ sel: new Set([hp.ref.split('.')[0]]) }); return;
-  }
-  const he = hitEnt(s, x, y);
-  if (!he) return;
-  if (he.ent.type === 'line') T.st = { place: true, type: 'length', refs: [he.id] };
-  else if (he.ent.type === 'circle') T.st = { place: true, type: 'diameter', refs: [he.id] };
-  else if (he.ent.type === 'arc') T.st = { place: true, type: 'radius', refs: [he.id] };
-  view.setSketchState({ sel: new Set([he.id]) });
+  if (!tg) return;
+  const one = single(tg);
+  T.st = one ? { place: true, first: tg, ...one } : { first: tg };
+  view.setSketchState({ sel: new Set([tg.id]) });
 }
-function currentValue(s, type, refs) {
-  const e = s.ents.find(q => q.id === refs[0]);
-  if (type === 'length') return D(e.a, e.b);
-  if (type === 'diameter') return 2 * e.r;
-  if (type === 'radius') return e.r;
-  const p = ptOf(s, refs[0]), q = ptOf(s, refs[1]);
-  if (type === 'hdist') return Math.abs(q[0] - p[0]);
-  if (type === 'vdist') return Math.abs(q[1] - p[1]);
-  return D(p, q);
-}
+function currentValue(s, type, refs) { return measureDim(s, type, refs); }
 
 // ───── 三维：悬停、点选草图、拾取平面/边/面 ─────
 function sketchUnder(x, y) {
@@ -468,12 +481,16 @@ inp.addEventListener('keydown', e => {
 });
 inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== inp) closeDimEditor(); }, 150));
 host.addEventListener('dblclick', e => {
-  const l = e.target.closest('.dim-label'); if (l && l.dataset.dim) { e.stopPropagation(); openDimEditor(l.dataset.dim); }
+  const l = e.target.closest('.dim-label'); if (l && l.dataset.dim) {
+    e.stopPropagation();
+    if (l.dataset.sk && l.dataset.sk !== S.active) { onEditSketch(l.dataset.sk); setTimeout(() => openDimEditor(l.dataset.dim), 350); return; }
+    openDimEditor(l.dataset.dim);
+  }
 });
 // 拖动尺寸数字换位置（不改尺寸值）
 let labDrag = null;
 host.addEventListener('pointerdown', e => {
-  const l = e.target.closest('.dim-label[data-dim]'); if (!l || !S.active || e.button !== 0) return;
+  const l = e.target.closest('.dim-label[data-dim]'); if (!l || !S.active || l.dataset.sk !== S.active || e.button !== 0) return;
   labDrag = { id: l.dataset.dim, x: e.clientX, y: e.clientY, on: false, el: l };
   try { l.setPointerCapture(e.pointerId); } catch (x) { }
 });
@@ -506,7 +523,7 @@ window.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (S.active && T.st.start && /^[0-9.]$/.test(e.key)) { if (openNum(e.key)) e.preventDefault(); return; }
   if (e.key === 'Escape') {
-    if (T.st.start || T.st.first || T.st.place) { T.st = {}; view.setSketchState({ preview: [] }); clearOverlay(); }
+    if (T.st.start || T.st.first || T.st.place) { T.st = {}; view.setSketchState({ preview: [], dimPreview: null, sel: new Set() }); clearOverlay(); }
     else if (S.active) { setTool('select'); T.sel.clear(); syncSel(); }
     emit('escape');
   }

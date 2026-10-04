@@ -51,6 +51,7 @@
   <button data-testid="tool-circle" data-tool="circle" data-ti="tool-circle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.2"/></svg></button>
   <button data-testid="tool-arc" data-tool="arc" data-ti="tool-arc"><svg viewBox="0 0 24 24"><path d="M4 18a10 10 0 0 1 16 0"/></svg></button>
   <button data-testid="tool-dim" data-tool="dim" data-ti="tool-dim"><svg viewBox="0 0 24 24"><path d="M4 8v10M20 8v10M4 13h16M7 10l-3 3 3 3M17 10l3 3-3 3"/></svg></button>
+  <button id="dim-style-btn" data-ti="dimStyle"><svg viewBox="0 0 24 24"><path d="M4 8v10M20 8v10" /><path d="M4 13h16" stroke-dasharray="2.5 2"/><circle cx="18" cy="5" r="2"/></svg></button>
   <button id="tool-construction" data-ti="tool-construction"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 3"/></svg></button>
   <div class="sep three"></div>
   <button data-testid="new-sketch" class="three" data-ti="new-sketch"><svg viewBox="0 0 24 24"><path d="M4 16 12 20l8-4-8-4z M12 4v8 M8 8h8"/></svg></button>
@@ -90,6 +91,14 @@
   <div id="sheetinfo"></div>
 </div>
 
+<section id="dimstyle" class="glass panel" hidden>
+  <h3 data-i="dimStyle"></h3>
+  <label class="row"><span data-i="dsLine"></span><select id="ds-line"><option value="solid" data-i="dsSolid"></option><option value="dashed" data-i="dsDashed"></option><option value="dashdot" data-i="dsDashdot"></option></select></label>
+  <label class="row"><span data-i="dsArrow"></span><select id="ds-arrow"><option value="arrow" data-i="dsArrowFill"></option><option value="open" data-i="dsArrowOpen"></option><option value="tick" data-i="dsTick"></option><option value="dot" data-i="dsDot"></option></select></label>
+  <label class="row"><span data-i="dsColor"></span><input type="color" id="ds-color"><button id="ds-color-reset" class="mini-btn" data-i="dsDefault"></button></label>
+  <label class="row"><span data-i="dsText"></span><input type="range" id="ds-text" min="9" max="22" step="1"><b id="ds-text-v"></b></label>
+  <label class="row"><span data-i="dsShow"></span><input type="checkbox" id="ds-show" checked></label>
+</section>
 <div id="status"></div>
 <div id="toast" hidden></div>
 <div id="dimbox" class="glass" hidden><input data-testid="dim-input" inputmode="decimal" autocomplete="off"></div>

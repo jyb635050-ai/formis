@@ -96,3 +96,28 @@ export async function labdbg({ p, click, drag, tap, shot, sleep }) {
   await drag([bb.x + bb.width / 2, bb.y + bb.height / 2], [bb.x - 60, bb.y + 80]);
   console.log(hit, JSON.stringify(await p.evaluate(() => [__log.slice(0, 4), __log.length, __cad.sketch(__cad.active()).dims[0].label])));
 }
+export async function dims2({ p, click, drag, tap, shot, sleep }) {
+  await click('new-sketch'); await sleep(300); await click('plane-XY'); await sleep(700);
+  const S = uv => p.evaluate(uv => __cad.toScreen(__cad.active(), uv), uv);
+  const line = async (a, b) => { await click('tool-line'); let q = await S(a); await tap(q.x, q.y); q = await S(b); await tap(q.x, q.y); await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); };
+  await line([0, 0], [60, 0]); await line([0, 25], [60, 25]); await line([80, 0], [100, 30]); await line([80, -10], [110, -5]);
+  await click('tool-circle'); let q = await S([30, 45]); await tap(q.x, q.y); q = await S([34, 45]); await tap(q.x, q.y); await p.keyboard.press('Escape');
+  await click('tool-dim');
+  const pick = async (...uvs) => { for (const uv of uvs) { const q = await S(uv); await tap(q.x, q.y); } await sleep(150); await p.keyboard.press('Enter'); await sleep(150); };
+  await pick([30, 0], [30, 25], [-8, 12]);          // 两条平行线 → 间距
+  await pick([34, 45], [45, 25], [50, 37]);         // 圆 + 线 → 圆心到线距离
+  await pick([90, 15], [95, -7.5], [100, 5]);       // 两条斜线 → 角度
+  await shot('s-dims2');
+  const dims = await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => [d.type, Math.round(d.value * 1000) / 1000]));
+  // 虚线样式
+  await p.click('#dim-style-btn'); await p.selectOption('#ds-line', 'dashed'); await p.selectOption('#ds-arrow', 'tick'); await sleep(300); await shot('t-dashed');
+  await p.mouse.click(700, 880); await click('sketch-done'); await sleep(300);
+  // 去工程图再回来（先要有实体）
+  await click('mode-sheet'); await sleep(500); await click('mode-3d'); await sleep(800); await shot('u-back');
+  const labels = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
+  // 导出 DXF 校验
+  await p.evaluate(() => { __cad.mode('2d'); });
+  const s3 = await p.evaluate(async () => { const sid = __cad.sketches()[0]; document.querySelector('[data-testid=mode-3d]').click(); return sid; });
+  const dxf = await p.evaluate(async sid => { const { S: st } = {}; window.__cadActive = sid; return null; }, s3);
+  console.log(JSON.stringify({ dims, labelsAfterSheet: labels }));
+}
