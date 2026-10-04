@@ -151,40 +151,81 @@ export function lookAtSketch(sid, instant) {
 }
 
 // ───── 交互 ─────
-let handler = null; // 工具层：{down(e,info), move(e,info), up(e,info), dbl(e)}
+// 视图导航（照 SolidWorks 习惯）：中键拖＝旋转、Ctrl+中键＝平移、Shift+中键＝缩放、双击中键＝全部显示；
+// 右键拖＝旋转（编辑草图/二维里是平移）；三维里左键在空白处拖也能旋转，Shift+左键拖＝平移；滚轮以光标为中心缩放。
+// 旋转绕模型中心转（模型中心在屏幕上不动），不是绕屏幕中心。
+let handler = null; // 工具层：{down(e), move(e), up(e), dbl(e)}
 export const setHandler = h => { handler = h; };
-let drag = null;
+let drag = null, leftPending = null;
 const el = renderer.domElement;
 host.addEventListener('contextmenu', e => e.preventDefault());
-host.addEventListener('pointerdown', e => {
-  if (e.target.closest('.dim-label')) return;
-  if (e.button === 2 || e.button === 1) {
-    drag = { b: e.button, x: e.clientX, y: e.clientY, shift: e.shiftKey };
-    host.setPointerCapture(e.pointerId); C.anim = null; e.preventDefault(); return;
+// 拦住 Chrome 的"中键自动滚动"，否则中键拖动被浏览器吃掉
+host.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
+host.addEventListener('auxclick', e => { if (e.button === 1) { e.preventDefault(); if (e.detail === 2 && S.mode === '3d') fitAll(); } });
+function navMode(b, e) {
+  const flat = S.mode === '2d' || (!!S.active && b === 2);
+  if (b === 1) return e.ctrlKey ? 'pan' : e.shiftKey ? 'zoom' : (S.mode === '2d' ? 'pan' : 'orbit');
+  if (b === 2) return e.shiftKey || flat ? 'pan' : 'orbit';
+  return e.shiftKey ? 'pan' : 'orbit';
+}
+function pivot() {
+  const b = S.built && S.built.measure;
+  if (b && b.volume > 0 && model.visible) return new THREE.Vector3((b.bbox[0][0] + b.bbox[1][0]) / 2, (b.bbox[0][1] + b.bbox[1][1]) / 2, (b.bbox[0][2] + b.bbox[1][2]) / 2);
+  return C.target.clone();
+}
+function startDrag(b, e) {
+  drag = { b, x: e.clientX, y: e.clientY, mode: navMode(b, e), pivot: pivot() };
+  try { host.setPointerCapture(e.pointerId); } catch (x) { }
+  C.anim = null; host.classList.add('nav-' + drag.mode);
+}
+function endDrag(e) { if (drag) host.classList.remove('nav-' + drag.mode); drag = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } }
+function navMove(dx, dy) {
+  if (drag.mode === 'pan') {
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(C.quat), up = new THREE.Vector3(0, 1, 0).applyQuaternion(C.quat);
+    C.target.addScaledVector(right, -dx / C.scale).addScaledVector(up, dy / C.scale);
+  } else if (drag.mode === 'zoom') {
+    C.scale = Math.min(500, Math.max(0.02, C.scale * Math.pow(1.006, -dy)));
+  } else {
+    const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -dx * 0.008);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(C.quat);
+    const qx = new THREE.Quaternion().setFromAxisAngle(right, -dy * 0.008);
+    const q = qx.multiply(qz);
+    C.quat.premultiply(q).normalize();
+    // 绕模型中心转：屏幕中心对着的点跟着绕 pivot 转
+    C.target.sub(drag.pivot).applyQuaternion(q).add(drag.pivot);
   }
-  if (e.button === 0 && handler && handler.down) handler.down(e);
+  dirty = true;
+}
+host.addEventListener('pointerdown', e => {
+  if (e.target.closest('.dim-label') || e.target.closest('.numbox')) return;
+  if (drag) return;
+  if (e.button === 1 || e.button === 2) { e.preventDefault(); startDrag(e.button, e); return; }
+  if (e.button !== 0) return;
+  // 三维里没在画草图：先记下来，拖动超过 4 像素就当旋转，否则松手时按"点击"处理（选草图/选边/选面）
+  if (S.mode === '3d' && !S.active) { leftPending = { x: e.clientX, y: e.clientY, ev: e }; try { host.setPointerCapture(e.pointerId); } catch (x) { } return; }
+  if (handler && handler.down) handler.down(e);
 });
 host.addEventListener('pointermove', e => {
   if (drag) {
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
-    const pan = drag.b === 1 || drag.shift || S.mode === '2d' || !!S.active;
-    if (pan) {
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(C.quat), up = new THREE.Vector3(0, 1, 0).applyQuaternion(C.quat);
-      C.target.addScaledVector(right, -dx / C.scale).addScaledVector(up, dy / C.scale);
-    } else {
-      const qz = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -dx * 0.008);
-      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(C.quat);
-      const qx = new THREE.Quaternion().setFromAxisAngle(right, -dy * 0.008);
-      C.quat.premultiply(qz).premultiply(qx).normalize();
+    navMove(dx, dy); return;
+  }
+  if (leftPending && (e.buttons & 1)) {
+    if (Math.hypot(e.clientX - leftPending.x, e.clientY - leftPending.y) > 4) {
+      const p = leftPending; leftPending = null;
+      startDrag(0, Object.assign({}, { clientX: p.x, clientY: p.y, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, pointerId: e.pointerId }));
+      navMove(e.clientX - p.x, e.clientY - p.y); drag.x = e.clientX; drag.y = e.clientY;
     }
-    dirty = true; return;
+    return;
   }
   if (handler && handler.move) handler.move(e);
 });
 host.addEventListener('pointerup', e => {
-  if (drag && (e.button === drag.b)) { drag = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } return; }
+  if (drag && e.button === drag.b) { endDrag(e); return; }
+  if (leftPending && e.button === 0) { const p = leftPending; leftPending = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } if (handler && handler.down) handler.down(p.ev); return; }
   if (e.button === 0 && handler && handler.up) handler.up(e);
 });
+host.addEventListener('pointercancel', e => { if (drag) endDrag(e); leftPending = null; });
 host.addEventListener('dblclick', e => { if (handler && handler.dbl) handler.dbl(e); });
 host.addEventListener('wheel', e => {
   e.preventDefault();
@@ -439,10 +480,21 @@ export function setTheme(dark) {
   matMesh.color.setHex(theme.model); matEdge.color.setHex(theme.edge);
   drawSketches(); dirty = true;
 }
+// 左下角坐标轴指示（像 SolidWorks 的方向指示器）
+const triad = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); triad.setAttribute('class', 'triad'); triad.setAttribute('viewBox', '-40 -40 80 80');
+host.appendChild(triad);
+function drawTriad() {
+  if (S.mode !== '3d') { triad.style.display = 'none'; return; }
+  triad.style.display = '';
+  const inv = C.quat.clone().invert();
+  const ax = [['X', [1, 0, 0], '#e5484d'], ['Y', [0, 1, 0], '#30a46c'], ['Z', [0, 0, 1], '#3e82f7']].map(([n, v, c]) => { const w = new THREE.Vector3(...v).applyQuaternion(inv); return { n, c, x: w.x * 26, y: -w.y * 26, z: w.z }; });
+  ax.sort((a, b) => a.z - b.z);
+  triad.innerHTML = ax.map(a => `<line x1="0" y1="0" x2="${a.x.toFixed(1)}" y2="${a.y.toFixed(1)}" stroke="${a.c}" stroke-width="2.4" stroke-linecap="round"/><text x="${(a.x * 1.28).toFixed(1)}" y="${(a.y * 1.28 + 4).toFixed(1)}" fill="${a.c}" font-size="11" font-weight="700" text-anchor="middle">${a.n}</text>`).join('') + '<circle r="2.6" fill="currentColor"/>';
+}
 let lastW = 0;
 function loop(now) {
   stepAnim(now);
-  if (dirty) { dirty = false; applyCam(); renderer.render(scene, cam); placeLabels(); }
+  if (dirty) { dirty = false; applyCam(); renderer.render(scene, cam); placeLabels(); drawTriad(); }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

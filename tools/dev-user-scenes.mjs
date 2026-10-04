@@ -39,3 +39,24 @@ export async function orbit({ p, click, drag, tap, shot, sleep }) {
   await p.mouse.up({ button: 'right' }); await sleep(500); await shot('o2');
   console.log('orbit', cam0, JSON.stringify(await p.evaluate(() => window.__cad.project([0, 0, 0]))));
 }
+export async function nav({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => { const C = __cad.cmd; const s = await C.sketch('XY'); C.line(s, [10, 10], [50, 10]); C.line(s, [50, 10], [50, 40]); C.line(s, [50, 40], [10, 40]); C.line(s, [10, 40], [10, 10]); C.finish(s); C.extrude(s, { depth: 12 }); await __cad.idle(); });
+  await click('view-iso'); await sleep(500); await click('view-fit'); await sleep(600);
+  const P = () => p.evaluate(() => { const a = __cad.project([30, 25, 6]), b = __cad.project([30, 25, 20]); return [Math.round(a.x), Math.round(a.y), Math.round(b.x - a.x), Math.round(b.y - a.y)]; });
+  const dragBtn = async (button, a, b, mods = []) => { for (const m of mods) await p.keyboard.down(m); await p.mouse.move(a[0], a[1]); await p.mouse.down({ button }); for (let i = 1; i <= 15; i++) { await p.mouse.move(a[0] + (b[0] - a[0]) * i / 15, a[1] + (b[1] - a[1]) * i / 15); await sleep(16); } await p.mouse.up({ button }); for (const m of mods) await p.keyboard.up(m); await sleep(200); };
+  const r = { start: await P() };
+  await dragBtn('middle', [700, 450], [850, 420]); r.middle = await P(); await shot('n-middle');
+  await dragBtn('left', [300, 700], [420, 650]); r.leftEmpty = await P();
+  await dragBtn('right', [700, 450], [600, 500]); r.right = await P();
+  await dragBtn('middle', [700, 450], [800, 450], ['Control']); r.ctrlMiddlePan = await P();
+  await dragBtn('left', [700, 450], [760, 450], ['Shift']); r.shiftLeftPan = await P();
+  await click('view-iso'); await sleep(600);
+  // 单击空草图仍能选中
+  await p.evaluate(async () => { const C = __cad.cmd; const s = await C.sketch('XY'); C.circle(s, [80, 25], 8); C.finish(s); });
+  await sleep(300);
+  const q = await p.evaluate(() => __cad.toScreen(__cad.sketches().at(-1), [88, 25]));
+  await tap(200, 820); await tap(q.x, q.y); await sleep(200);
+  r.selected = await p.evaluate(() => document.querySelector('.ti.sel') && document.querySelector('.ti.sel').textContent);
+  r.consoleErr = 0; await shot('n-end');
+  console.log(JSON.stringify(r));
+}
