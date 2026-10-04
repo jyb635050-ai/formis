@@ -4,3 +4,4 @@ tools/judge/pylib/
 shots/
 dist/
 tools/font/*.ttf
+.deploy/

@@ -12,3 +12,13 @@
 - 任务3 建模导出：model 20/20、heavy 4/4（重建最长帧 27ms）
 - 任务4–7：sketch 18/18、ui3d 13/13、sheet 5/5、persist 4/4
 - 本地全量 84/84、退出码 0（1分24秒）
+- 任务8：--prove 14/14 抓到、退出码 1（3分54秒）
+- 任务9：仓库 github.com/jyb635050-ai/glass-cad（main=源码，gh-pages=构建产物，带 .nojekyll）；线上 https://jyb635050-ai.github.io/glass-cad/ `--url` 83/83、退出码 0；线上内核 2.2 秒就绪（Pages 对 wasm 走 gzip，7.3MB）
+- 判卷外自检：L 形零件拉伸+贯穿切 30500、三角形旋转 270° 15707.96 与公式一致；源码无探测判卷字样；连续改尺寸 30 次重建 31→12ms 不涨
+- 遗留：导出的 DXF 只用 ezdxf 验过，没在 AutoCAD/DWG TrueView 里人工打开看（尺寸块名不带 *，Autodesk 是否照常显示未验证）
+
+## 部署方法
+1. `npm run build`
+2. `rm -rf .deploy && cp -r dist .deploy && touch .deploy/.nojekyll`，在 .deploy 里 `git init -b gh-pages` 并提交
+3. 单独一条命令：`git -C .deploy push -f https://github.com/jyb635050-ai/glass-cad.git gh-pages:gh-pages`
+4. `node tools/accept.mjs --url https://jyb635050-ai.github.io/glass-cad/`
