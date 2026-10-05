@@ -60,6 +60,7 @@ on(w => {
   if (w === 'all' || w === 'sketch' || w === 'doc') { view.drawSketches(); syncMode(); }
   if (w === 'pick' || w === 'all') renderProps();
   if (w === 'selSketch') renderTree();
+  if ((w === 'doc' || w === 'all') && S.mode === 'sheet' && SH.proj) layoutSheet();
   if (w === 'sketch' || w === 'all') renderStatus();
 });
 const idle = async () => { await kernel.idle(); await new Promise(r => setTimeout(r, 0)); await kernel.idle(); };
@@ -405,18 +406,27 @@ $('#sheet-iso').addEventListener('change', e => { ops.setSheet({ iso: e.target.c
 $('#sheet-names').addEventListener('change', e => { ops.setSheet({ names: e.target.checked }); refreshSheet(); });
 let sheetBusy = null;
 async function refreshSheet() {
-  if (!(S.built && S.built.measure.volume > 0)) { SH.data = null; SH.key = null; renderSheet(); return; }
-  const key = JSON.stringify([payload(), S.doc.sheet, S.doc.name, getLang()]);
-  if (key === SH.key && SH.data) return;
-  if (sheetBusy && sheetBusy.key === key) return sheetBusy.p;
-  const p = (async () => {
-    const r = await kernel.call('project', {});
-    const so = S.doc.sheet || {};
-    SH.data = buildSheet(r.views, r.bbox, so.size || 'A3', S.doc.name, { scale: so.scale || 'auto', iso: so.iso !== false, names: so.names !== false });
-    SH.key = key; SH.fitted = false; renderSheet();
-  })();
-  sheetBusy = { key, p }; try { await p; } finally { if (sheetBusy && sheetBusy.key === key) sheetBusy = null; }
+  if (!(S.built && S.built.measure.volume > 0)) { SH.data = null; SH.key = null; SH.proj = null; renderSheet(); return; }
+  const pkey = JSON.stringify(payload());
+  if (!SH.proj || SH.proj.key !== pkey) {
+    if (!(sheetBusy && sheetBusy.key === pkey)) {
+      const p = (async () => { const r = await kernel.call('project', {}); SH.proj = { key: pkey, views: r.views, bbox: r.bbox }; })();
+      sheetBusy = { key: pkey, p };
+      try { await p; } finally { if (sheetBusy && sheetBusy.key === pkey) sheetBusy = null; }
+    } else await sheetBusy.p;
+  }
+  layoutSheet();
 }
+function layoutSheet() {
+  if (!SH.proj) return;
+  const so = S.doc.sheet || {};
+  const key = JSON.stringify([SH.proj.key, so, S.doc.name, getLang()]);
+  if (key === SH.key && SH.data) return;
+  const keepView = SH.data && SH.data.page[0] === ((PAPER_SIZES[so.size || 'A3'] || [])[0]);
+  SH.data = buildSheet(SH.proj.views, SH.proj.bbox, so.size || 'A3', S.doc.name, { scale: so.scale || 'auto', iso: so.iso !== false, names: so.names !== false, edits: so.dimEdits || {} });
+  SH.key = key; if (!keepView) SH.fitted = false; renderSheet();
+}
+const PAPER_SIZES = { A4: [297, 210], A3: [420, 297] };
 function renderSheet() {
   const host = $('#sheetview'); if (!host) return;
   $('[data-testid="sheet-size"]').value = (S.doc.sheet && S.doc.sheet.size) || 'A3';
@@ -425,12 +435,28 @@ function renderSheet() {
   host.innerHTML = '';
   const paper = h('div', { class: 'paper' }); paper.innerHTML = svg.replace(/^<\?xml[^>]*>\s*/, '');
   host.append(paper);
+  // 尺寸热区：细线很难点中，按每个尺寸的外框放一块透明的可点区域
+  for (const g of paper.querySelectorAll('g.dimg[data-key]')) {
+    try {
+      const b = g.getBBox(), pad = 1.6;
+      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      r.setAttribute('x', b.x - pad); r.setAttribute('y', b.y - pad); r.setAttribute('width', b.width + pad * 2); r.setAttribute('height', b.height + pad * 2);
+      r.setAttribute('class', 'hit'); g.insertBefore(r, g.firstChild);
+    } catch (e) { }
+    if (SH.sel === g.dataset.key) g.classList.add('sel');
+  }
   const so = S.doc.sheet || {};
   $('#sheet-scale').value = so.scale && so.scale !== 'auto' ? String(so.scale) : 'auto'; $('#sheet-iso').checked = so.iso !== false; $('#sheet-names').checked = so.names !== false;
   $('#sheetinfo').innerHTML = '';
   $('#sheetinfo').append(h('div', {}, `${t('scale')} ${SH.data.scaleText}${SH.data.auto ? '（' + t('autoShort') + '）' : ''} · ${t('sheetSize')} ${so.size || 'A3'}`));
   if (SH.data.overflow) $('#sheetinfo').append(h('div', { class: 'warn' }, t('scaleOverflow')));
   if (so.iso !== false && !SH.data.iso) $('#sheetinfo').append(h('div', {}, t('isoSkipped')));
+  const nh = (SH.data.hiddenDims || []).length, nm = Object.values(so.dimEdits || {}).filter(e => e.o).length;
+  $('#sheetinfo').append(h('div', { class: 'hint2' }, t('sheetDimHint')));
+  const row = h('div', { class: 'sheetbtns' });
+  if (SH.sel) row.append(h('button', { class: 'mini-btn', onclick: () => deleteSheetDim(SH.sel) }, t('delDim')));
+  if (nh || nm) row.append(h('button', { class: 'mini-btn', onclick: () => { SH.sel = null; ops.setSheet({ dimEdits: {} }); layoutSheet(); } }, `${t('restoreDims')}${nh ? `（${t('deletedN')} ${nh}）` : ''}`));
+  $('#sheetinfo').append(row);
   if (!SH.fitted) {
     const r = host.getBoundingClientRect(), [pw, ph] = SH.data.page;
     const k = Math.min((r.width - 300) / pw, (r.height - 140) / ph);
@@ -439,13 +465,56 @@ function renderSheet() {
   placePaper();
 }
 function placePaper() { const p = $('#sheetview .paper'); if (!p || !SH.data) return; p.style.width = SH.data.page[0] + 'px'; p.style.height = SH.data.page[1] + 'px'; p.style.transform = `translate(${SH.x}px, ${SH.y}px) scale(${SH.z})`; }
+function deleteSheetDim(key) {
+  if (!key) return;
+  const so = S.doc.sheet || {};
+  SH.sel = null;
+  ops.setSheet({ dimEdits: { ...(so.dimEdits || {}), [key]: { d: true } } });
+  layoutSheet();
+}
 (() => {
   const host = $('#sheetview'); let d = null;
   host.addEventListener('wheel', e => { e.preventDefault(); const k = Math.pow(1.0015, -e.deltaY), r = host.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top; SH.x = cx - (cx - SH.x) * k; SH.y = cy - (cy - SH.y) * k; SH.z *= k; placePaper(); }, { passive: false });
-  host.addEventListener('pointerdown', e => { d = { x: e.clientX, y: e.clientY }; host.setPointerCapture(e.pointerId); });
-  host.addEventListener('pointermove', e => { if (!d) return; SH.x += e.clientX - d.x; SH.y += e.clientY - d.y; d = { x: e.clientX, y: e.clientY }; placePaper(); });
-  host.addEventListener('pointerup', () => { d = null; });
+  host.addEventListener('pointerdown', e => {
+    if (e.button !== 0 && e.button !== 1) return;
+    const g = e.button === 0 && e.target.closest && e.target.closest('g.dimg[data-key]');
+    if (g) {
+      SH.sel = g.dataset.key;
+      host.querySelectorAll('g.dimg.sel').forEach(x => x.classList.remove('sel')); g.classList.add('sel');
+      d = { dim: g, key: g.dataset.key, x0: e.clientX, y0: e.clientY, moved: false };
+      host.setPointerCapture(e.pointerId); renderSheetInfoOnly(); return;
+    }
+    if (SH.sel && e.button === 0) { SH.sel = null; host.querySelectorAll('g.dimg.sel').forEach(x => x.classList.remove('sel')); renderSheetInfoOnly(); }
+    d = { x: e.clientX, y: e.clientY }; host.setPointerCapture(e.pointerId); host.classList.add('panning');
+  });
+  host.addEventListener('pointermove', e => {
+    if (!d) return;
+    if (d.dim) {
+      const dx = (e.clientX - d.x0) / SH.z, dy = (e.clientY - d.y0) / SH.z;
+      if (Math.hypot(dx, dy) * SH.z > 2) d.moved = true;
+      d.dim.setAttribute('transform', `translate(${dx} ${dy})`); return;
+    }
+    SH.x += e.clientX - d.x; SH.y += e.clientY - d.y; d.x = e.clientX; d.y = e.clientY; placePaper();
+  });
+  host.addEventListener('pointerup', e => {
+    host.classList.remove('panning');
+    if (d && d.dim && d.moved) {
+      // 纸面毫米（y 向上）累加到这个尺寸的偏移里
+      const dx = (e.clientX - d.x0) / SH.z, dy = -(e.clientY - d.y0) / SH.z;
+      const so = S.doc.sheet || {}, ed = { ...(so.dimEdits || {}) }, old = ed[d.key] && ed[d.key].o || [0, 0];
+      ed[d.key] = { o: [old[0] + dx, old[1] + dy] };
+      ops.setSheet({ dimEdits: ed }); layoutSheet();
+    }
+    d = null;
+  });
+  window.addEventListener('keydown', e => {
+    if (S.mode !== 'sheet' || !SH.sel) return;
+    if (/INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || '')) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSheetDim(SH.sel); }
+    if (e.key === 'Escape') { SH.sel = null; renderSheet(); }
+  });
 })();
+function renderSheetInfoOnly() { const keepFit = SH.fitted; const paper = $('#sheetview .paper'); if (!paper) return; SH.fitted = keepFit; /* 只刷新信息栏按钮 */ const info = $('#sheetinfo .sheetbtns'); if (!info) return; info.innerHTML = ''; const so = S.doc.sheet || {}; const nh = (SH.data.hiddenDims || []).length, nm = Object.values(so.dimEdits || {}).filter(x => x.o).length; if (SH.sel) info.append(h('button', { class: 'mini-btn', onclick: () => deleteSheetDim(SH.sel) }, t('delDim'))); if (nh || nm) info.append(h('button', { class: 'mini-btn', onclick: () => { SH.sel = null; ops.setSheet({ dimEdits: {} }); layoutSheet(); } }, `${t('restoreDims')}${nh ? `（${t('deletedN')} ${nh}）` : ''}`)); }
 
 // ───── 判卷入口 window.__cad（与界面同一套操作）─────
 const api = {

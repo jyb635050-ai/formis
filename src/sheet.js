@@ -121,16 +121,18 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   const center = (P, tf) => { for (const c of P.centers) { const q = tf(c.c), e = c.r + 2 / s; ents.push({ type: 'line', a: [q[0] - e, q[1]], b: [q[0] + e, q[1]], layer: 'CENTER', dashed: true }, { type: 'line', a: [q[0], q[1] - e], b: [q[0], q[1] + e], layer: 'CENTER', dashed: true }); } };
   center(topP, tfT); center(frontP, tfF); center(leftP, tfL);
   // 尺寸
-  const lin = (p1, p2, angle, at, value) => dims.push({ kind: 'linear', p1, p2, angle, at, value, ts });
-  const sheetDims = (P, f, tf) => {
+  // 每个尺寸带一个稳定的 key（视图:位置:数值），用户在图上拖动/删除的记录按 key 存，模型改了也对得上
+  const kv = v => String(Math.round(v * 1000) / 1000);
+  const lin = (key, p1, p2, angle, at, value) => dims.push({ key, kind: 'linear', p1, p2, angle, at, value, ts });
+  const sheetDims = (vn, P, f, tf) => {
     const [x0, y0, x1, y1] = f.box, A = tf([x0, y0]), B = tf([x1, y1]);
-    P.below.forEach((v, i) => { const q = tf([v, y0]); lin(A, q, 0, [(A[0] + q[0]) / 2, A[1] - d0 - dk * i], v - x0); });
+    P.below.forEach((v, i) => { const q = tf([v, y0]); lin(`${vn}:b:${kv(v - x0)}`, A, q, 0, [(A[0] + q[0]) / 2, A[1] - d0 - dk * i], v - x0); });
     const L = [...P.left.map(v => ({ v, y: tf([x0, v])[1] }))];
-    L.forEach((o, i) => lin(A, [A[0], o.y], 90, [A[0] - d0 - dk * i, (A[1] + o.y) / 2], o.v - y0));
-    if (P.leftOverall) lin(A, [A[0], B[1]], 90, [A[0] - d0 - dk * L.length, (A[1] + B[1]) / 2], P.leftOverall);
-    P.above.forEach((v, i) => { const q = tf([v, y1]); lin([A[0], B[1]], q, 0, [(A[0] + q[0]) / 2, B[1] + d0 + dk * i], v - x0); });
-    if (P.aboveOverall) lin([A[0], B[1]], B, 0, [(A[0] + B[0]) / 2, B[1] + d0 + dk * P.above.length], P.aboveOverall);
-    P.right.forEach((v, i) => { const q = tf([x1, v]); lin([B[0], A[1]], q, 90, [B[0] + d0 + dk * i, (A[1] + q[1]) / 2], v - y0); });
+    L.forEach((o, i) => lin(`${vn}:l:${kv(o.v - y0)}`, A, [A[0], o.y], 90, [A[0] - d0 - dk * i, (A[1] + o.y) / 2], o.v - y0));
+    if (P.leftOverall) lin(`${vn}:lo`, A, [A[0], B[1]], 90, [A[0] - d0 - dk * L.length, (A[1] + B[1]) / 2], P.leftOverall);
+    P.above.forEach((v, i) => { const q = tf([v, y1]); lin(`${vn}:a:${kv(v - x0)}`, [A[0], B[1]], q, 0, [(A[0] + q[0]) / 2, B[1] + d0 + dk * i], v - x0); });
+    if (P.aboveOverall) lin(`${vn}:ao`, [A[0], B[1]], B, 0, [(A[0] + B[0]) / 2, B[1] + d0 + dk * P.above.length], P.aboveOverall);
+    P.right.forEach((v, i) => { const q = tf([x1, v]); lin(`${vn}:r:${kv(v - y0)}`, [B[0], A[1]], q, 90, [B[0] + d0 + dk * i, (A[1] + q[1]) / 2], v - y0); });
     const DIRS = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(v => [v[0] * Math.SQRT1_2, v[1] * Math.SQRT1_2]);
     P.radial.forEach((g, gi) => {
       // 每种规格选一个方向（右上、右下、左上、左下轮流），挑这个方向上最靠外的那个圆拉引线；同规格的写数量
@@ -138,10 +140,20 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
       const c = g.cs.slice().sort((a, b) => (b.c[0] * dir[0] + b.c[1] * dir[1]) - (a.c[0] * dir[0] + a.c[1] * dir[1]))[0];
       const q = tf(c.c), at = [q[0] + dir[0] * (g.r + 7 / s), q[1] + dir[1] * (g.r + 7 / s)];
       const n = g.cs.length, pre = n > 1 ? `${n}×` : '';
-      dims.push({ kind: g.kind, c: q, r: g.r, dir, at, value: g.kind === 'diameter' ? 2 * g.r : g.r, ts, label: pre + (g.kind === 'diameter' ? 'Ø' : 'R') + fmt(g.kind === 'diameter' ? 2 * g.r : g.r), dxfText: pre + (g.kind === 'diameter' ? '%%c' : 'R') + '<>' });
+      dims.push({ key: `${vn}:${g.kind === 'diameter' ? 'd' : 'R'}:${kv(g.r)}`, kind: g.kind, c: q, r: g.r, dir, at, value: g.kind === 'diameter' ? 2 * g.r : g.r, ts, label: pre + (g.kind === 'diameter' ? 'Ø' : 'R') + fmt(g.kind === 'diameter' ? 2 * g.r : g.r), dxfText: pre + (g.kind === 'diameter' ? '%%c' : 'R') + '<>' });
     });
   };
-  sheetDims(topP, Tf, tfT); sheetDims(frontP, F, tfF); sheetDims(leftP, Lf, tfL);
+  sheetDims('top', topP, Tf, tfT); sheetDims('front', frontP, F, tfF); sheetDims('left', leftP, Lf, tfL);
+  // 用户编辑：o＝数字挪动的纸面毫米 [dx,dy]；d＝已删除
+  const edits = opt.edits || {}, hidden = [];
+  for (let i = dims.length - 1; i >= 0; i--) {
+    const d = dims[i], e = edits[d.key]; if (!e) continue;
+    if (e.d) { hidden.push(d.key); dims.splice(i, 1); continue; }
+    if (e.o) {
+      d.at = [d.at[0] + e.o[0] / s, d.at[1] + e.o[1] / s];
+      if (d.kind === 'diameter' || d.kind === 'radius') { const v = [d.at[0] - d.c[0], d.at[1] - d.c[1]], l = Math.hypot(v[0], v[1]) || 1; d.dir = [v[0] / l, v[1] / l]; }
+    }
+  }
   // 视图名
   const lab = (txt, x, y) => texts.push({ at: [x, y], h: 3.5 / s, text: txt, layer: 'TEXT', anchor: 'middle' });
   const vb = (box, tf) => { const a = tf([box[0], box[1]]), b = tf([box[2], box[3]]); return [a[0], a[1], b[0], b[1]]; };
@@ -189,5 +201,5 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   cell(2, t('drawnBy'), 'GlassCAD');
   cell(3, t('date'), date + (getLang() === 'zh' ? '   第一角投影' : '   First-angle'));
   const map = p => [p[0] * s, PH - p[1] * s];
-  return { drawing: { ents, dims, texts }, page: paper.slice(), scale: s, auto, overflow, iso: isoInfo, map, scaleText: scaleText(s) };
+  return { drawing: { ents, dims, texts }, page: paper.slice(), scale: s, auto, overflow, iso: isoInfo, map, scaleText: scaleText(s), hiddenDims: hidden };
 }

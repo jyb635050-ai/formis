@@ -52,9 +52,14 @@ export function dimGeom(d, ts) {
     if (Math.hypot(...sub(e1, d.p1)) > 1e-9) segs.push(ext([d.p1, e1])); if (Math.hypot(...sub(e2, d.p2)) > 1e-9) segs.push(ext([d.p2, e2]));
     segs.push([e1, e2]);
     const dd = unit(sub(e2, e1)); arrow(e1, mul(dd, -1)); arrow(e2, dd);
-    at = add(mul(add(e1, e2), 0.5), mul(n, ts * 0.8 * (dot(sub(d.at, d.p1), n) >= 0 ? 1 : 1)));
+    // 数字沿尺寸线放在 at 投影处；放到界线外面时尺寸线延长过去
+    const len = Math.hypot(...sub(e2, e1)), tpos = dot(sub(d.at, e1), dd);
+    if (tpos < 0) segs.push([e1, add(e1, mul(dd, tpos - ts * 0.4))]);
+    if (tpos > len) segs.push([e2, add(e1, mul(dd, tpos + ts * 0.4))]);
     rot = (Math.atan2(dd[1], dd[0]) * 180) / Math.PI; if (rot > 90.001 || rot < -89.999) rot += 180;
     rot = ((rot + 540) % 360) - 180;
+    const tn = [-Math.sin((rot * Math.PI) / 180), Math.cos((rot * Math.PI) / 180)];
+    at = add(add(e1, mul(dd, tpos)), mul(tn, ts * 0.8));
   } else if (d.kind === 'diameter' || d.kind === 'radius') {
     const p = add(d.c, mul(d.dir, d.r)), q = d.kind === 'diameter' ? sub(d.c, mul(d.dir, d.r)) : d.c;
     segs.push([q, d.at.length ? (Math.hypot(...sub(d.at, d.c)) > d.r ? d.at : p) : p]);
@@ -149,9 +154,11 @@ export function toSvg(dr, opt) {
   }
   for (const d of dr.dims) {
     const g = dimGeom({ ...d, style: dr.style }, (d.ts || ts));
+    out.push(`<g class="dimg"${d.key ? ` data-key="${esc(d.key)}"` : ''}>`);
     for (const s of g.segs) line(s[0], s[1], 'dm');
     const p = map(g.at);
     out.push(`<text x="${f(p[0])}" y="${f(p[1])}" font-size="${f(g.h * scale)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${f(-g.rot)} ${f(p[0])} ${f(p[1])})">${esc(g.text)}</text>`);
+    out.push('</g>');
   }
   for (const t of dr.texts) { const p = map(t.at); out.push(`<text x="${f(p[0])}" y="${f(p[1])}" font-size="${f(t.h * scale)}"${t.anchor ? ` text-anchor="${t.anchor}"` : ''}>${esc(t.text)}</text>`); }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${f(page[0])}mm" height="${f(page[1])}mm" viewBox="0 0 ${f(page[0])} ${f(page[1])}">` +

@@ -155,3 +155,24 @@ export async function typing({ p, click, drag, tap, shot, sleep }) {
   await click('feat-ok'); await sleep(800);
   console.log(JSON.stringify({ typed: v, depth: await p.evaluate(() => __cad.features()[0].params.depth) }));
 }
+export async function sheetedit({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY');
+    [[0, 0], [80, 0], [80, 60], [0, 60]].forEach((q, i, a) => C.line(s, q, a[(i + 1) % 4]));
+    for (const [x, y] of [[10, 10], [70, 10], [10, 50], [70, 50]]) C.circle(s, [x, y], 4);
+    C.finish(s); C.extrude(s, { depth: 10 }); await __cad.idle();
+  });
+  await click('make-sheet'); await sleep(2500);
+  const dimInfo = () => p.evaluate(async () => { const t = await (await __cad.export('dxf')).text(); return (t.match(/\nDIMENSION\r?\n/g) || []).length; });
+  const box = key => p.evaluate(k => { const g = document.querySelector(`g.dimg[data-key="${k}"] text`); const r = g.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }, key);
+  const keys = await p.evaluate(() => [...document.querySelectorAll('g.dimg[data-key]')].map(g => g.dataset.key));
+  const n0 = await dimInfo();
+  console.log('keys', JSON.stringify(keys)); console.log(await p.evaluate(() => document.querySelector('g.dimg[data-key="front:ao"]')?.outerHTML.slice(0,300))); const b80 = await box('front:ao'); await drag(b80, [b80[0] + 40, b80[1] - 30]); await sleep(400); await shot('x-moved'); console.log('after', JSON.stringify(await p.evaluate(() => [[...document.querySelectorAll('g.dimg[data-key]')].map(g => g.dataset.key), JSON.stringify(window.__cad && 0), document.querySelector('#sheetinfo').textContent])));
+  const after80 = await box('front:ao');
+  const b40 = await box('top:b:70'); await tap(b40[0], b40[1]); await p.keyboard.press('Delete'); await sleep(400); await shot('y-deleted');
+  const n1 = await dimInfo(); const has70 = await p.evaluate(() => !!document.querySelector('g.dimg[data-key="top:b:70"]'));
+  await p.keyboard.press('Control+z'); await sleep(400); const undo70 = await p.evaluate(() => !!document.querySelector('g.dimg[data-key="top:b:70"]'));
+  const restore = await p.evaluate(() => { const b = [...document.querySelectorAll('#sheetinfo .mini-btn')].find(x => /恢复/.test(x.textContent)); if (b) b.click(); return !!b; });
+  await sleep(400); const back80 = await box('front:ao');
+  console.log(JSON.stringify({ keys, n0, b80, after80, n1, deleted70: !has70, undo70, restore, back80 }));
+}

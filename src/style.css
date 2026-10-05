@@ -179,3 +179,15 @@ body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 
 #sheetbar .chk { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #sheetinfo .warn { color: var(--danger); font-weight: 600; }
+
+/* 工程图尺寸：可选中、拖动、删除 */
+#sheetview g.dimg { cursor: move; }
+#sheetview g.dimg .hit { fill: transparent; stroke: none; pointer-events: all; }
+#sheetview g.dimg:hover .dm { stroke: #ff9500 !important; }
+#sheetview g.dimg:hover text { fill: #ff9500; }
+#sheetview g.dimg.sel .dm { stroke: #ff6a00 !important; stroke-width: 0.3; }
+#sheetview g.dimg.sel text { fill: #ff6a00; font-weight: 700; }
+#sheetview g.dimg.sel .hit { fill: rgba(255, 106, 0, .07); }
+#sheetview.panning { cursor: grabbing; }
+#sheetinfo .hint2 { margin-top: 4px; font-size: 11px; }
+#sheetinfo .sheetbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
