@@ -3,7 +3,7 @@ import { S, on, emit, ops, txn, undo, redo, loadSaved, loadDoc, resetDoc, sketch
 import { initSolver } from './solver.js';
 import { createKernel } from './kernel/client.js';
 import * as view from './view.js';
-import { T, setTool, setPick, setToast, closeDimEditor, setOnEditSketch } from './tools.js';
+import { T, setTool, setPick, setToast, closeDimEditor, setOnEditSketch, clearSel3d, faceToEdges } from './tools.js';
 import { sketchLoops } from './kernel/build.js';
 import { t, getLang, setLang, featName } from './i18n.js';
 import { $, $$, h, fmt, download, safeName } from './util.js';
@@ -38,6 +38,7 @@ const kernel = createKernel({
   onReady() { ready.kernel = true; renderStatus(); },
   onBuilt(m) {
     S.built = m;
+    if (T.sel3d && T.sel3d.length) { T.sel3d = []; emit('sel3d'); }
     for (const [sid, pl] of Object.entries(m.planes || {})) { const s = sketchById(sid); if (s) s.plane = pl; }
     view.setModel(m.mesh ? m : null);
     renderTree(); renderInfo(); if (P && P.live) updatePropsError();
@@ -60,6 +61,7 @@ on(w => {
   if (w === 'all' || w === 'sketch' || w === 'doc') { view.drawSketches(); syncMode(); }
   if (w === 'pick' || w === 'all') renderProps();
   if (w === 'selSketch') renderTree();
+  if (w === 'sel3d') { if (!T.pick) view.setSelection(T.sel3d); renderStatus(); }
   if ((w === 'doc' || w === 'all') && S.mode === 'sheet' && SH.proj) layoutSheet();
   if (w === 'sketch' || w === 'all') renderStatus();
 });
@@ -102,7 +104,10 @@ for (const b of $$('[data-tool]')) b.addEventListener('click', () => {
     // 三维里没在编辑草图：选中的空草图就进去编辑，否则先选平面新建草图，选完自动切到这个工具
     const sel = S.selSketch && sketchById(S.selSketch);
     if (sel && !S.doc.features.some(f => f.sketch === sel.id)) { editSketch(sel.id); setTool(b.dataset.tool); return; }
-    T.pendingTool = b.dataset.tool; startNewSketch(); return;
+    T.pendingTool = b.dataset.tool;
+    const f = selectedPlanarFace();
+    if (f) { clearSel3d(); createSketch({ face: f.point }); return; }
+    startNewSketch(); return;
   }
   setTool(b.dataset.tool);
 });
@@ -120,7 +125,13 @@ function startNewSketch() {
   openProps({ kind: 'plane' });
   setPick({ kind: 'plane', sel: [], onPick: p => createSketch(p) });
 }
-$('[data-testid="new-sketch"]').addEventListener('click', () => { T.pendingTool = null; startNewSketch(); });
+function selectedPlanarFace() { const f = T.sel3d.length === 1 && T.sel3d[0].kind === 'face' && T.sel3d[0].planar ? T.sel3d[0] : null; return f; }
+$('[data-testid="new-sketch"]').addEventListener('click', () => {
+  T.pendingTool = null;
+  const f = selectedPlanarFace();
+  if (f && S.mode === '3d' && !S.active) { clearSel3d(); return createSketch({ face: f.point }); }
+  startNewSketch();
+});
 $('[data-testid="sketch-done"]').addEventListener('click', () => { if (S.active) { ops.finish(S.active); setTool('select'); } closeProps(); setPick(null); renderTree(); });
 async function createSketch(plane) {
   try {
@@ -237,8 +248,14 @@ for (const b of $$('[data-feat]')) b.addEventListener('click', () => {
   if (spec.pick) {
     if (!(S.built && S.built.measure.volume > 0)) return toast(t('needSolid'), true);
     if (S.active) ops.finish(S.active);
+    // 先选后做：已选的面/边直接带进来（圆角/倒角时，选面＝这个面的所有边）
+    let pre = [];
+    if (spec.pick === 'edges') { for (const x of T.sel3d) for (const y of (x.kind === 'edge' ? [x] : faceToEdges(x.face))) if (!pre.some(z => z.group === y.group)) pre.push(y); }
+    else pre = T.sel3d.filter(x => x.kind === 'face');
+    T.sel3d = [];
     openProps({ kind: 'feat', feat, values: {} });
-    setPick({ kind: spec.pick, sel: [] });
+    setPick({ kind: spec.pick, sel: pre });
+    if (pre.length) setTimeout(() => { const i = $('#props input.num'); i && i.focus(); i && i.select(); }, 30);
     return;
   }
   const sid = sketchForFeature();
@@ -312,6 +329,10 @@ function renderStatus() {
   if (a) s += ` · ${t('dof')} ${a.dof || 0}（${(a.dof || 0) === 0 ? t('fully') : t('under')}）`;
   if (a) s += ' · ' + t('keys');
   if (!ready.kernel) s = t('kernelLoading') + ' · ' + s;
+  if (S.mode === '3d' && !S.active && T.sel3d && T.sel3d.length) {
+    const ne = T.sel3d.filter(x => x.kind === 'edge').length, nf = T.sel3d.length - ne;
+    el.innerHTML = ''; el.append(h('b', { class: 'selinfo' }, t('selNow').replace('{e}', ne).replace('{f}', nf)), ' ' + t('selNext')); return;
+  }
   el.textContent = s;
 }
 

@@ -40,7 +40,7 @@ S1.ents = [...rect('r', 0, 0, 100, 60), ...holes]; [v] = vol(doc); ok('width100'
 doc.features[1].suppressed = true; [v] = vol(doc); ok('suppress', v, VP(100, 15, false)); doc.features[1].suppressed = false;
 doc.features[1].params.radius = 40; let errs; [v, errs] = vol(doc); ok('fillet-error', v, VP(100, 15, false)); console.log('  error:', JSON.stringify(errs));
 doc.features[1].params.radius = 5;
-let t = performance.now(); const [, , sF] = vol(doc); const inf = K.info(sF); console.log('info ms', (performance.now() - t).toFixed(0), 'tris', inf.mesh.triangles.length / 3, 'faces', inf.faces.length, 'maxFaceIdx', Math.max(...inf.mesh.triFace), 'unmapped', inf.unmapped, 'planar', inf.faces.filter(f => f.planar).length);
+let t = performance.now(); const [, , sF] = vol(doc); const inf = K.info(sF); console.log('info ms', (performance.now() - t).toFixed(0), 'tris', inf.mesh.triangles.length / 3, 'faces', inf.faces.length, 'maxFaceIdx', Math.max(...inf.mesh.triFace), 'unmapped', inf.unmapped, 'planar', inf.faces.filter(f => f.planar).length, 'faceEdges', JSON.stringify(inf.faceEdges.slice(0, 4)), 'edges', inf.edges.groups.length);
 const x3 = K.to3mfModel(sF); console.log('3mf model chars', x3.length);
 // 抽壳
 const sh = { sketches: [{ id: 'A', plane: PLANES.XY, ents: rect('r', 0, 0, 40, 30) }], features: [{ id: 'E', type: 'extrude', sketch: 'A', params: { depth: 20 } }] };

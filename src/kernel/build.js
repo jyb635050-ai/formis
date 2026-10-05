@@ -216,11 +216,14 @@ export function makeKernel(R) {
     const triFace = new Int32Array(m.triangles.length / 3);
     let unmapped = 0;
     for (const g of m.faceGroups) { const fi = idx.has(g.faceId) ? idx.get(g.faceId) : (unmapped++, -1); for (let i = 0; i < g.count / 3; i++) triFace[g.start / 3 + i] = fi; }
+    // 每个面由哪几条边围成（选一个面倒角/圆角＝它的所有边）
+    const edgeIdx = new Map(ed.edgeGroups.map((g, i) => [g.edgeId, i]));
+    const faceEdges = fl.map(f => { try { return [...new Set(f.edges.map(e => edgeIdx.get(e.hashCode)).filter(i => i !== undefined))]; } catch (e) { return []; } });
     return {
       measure,
       mesh: { vertices: Float32Array.from(m.vertices), normals: Float32Array.from(m.normals), triangles: Uint32Array.from(m.triangles), triFace },
       edges: { lines: Float32Array.from(ed.lines), groups: ed.edgeGroups.map(g => [g.start, g.count]) },
-      faces, unmapped,
+      faces, faceEdges, unmapped,
     };
   }
 

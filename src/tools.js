@@ -53,7 +53,7 @@ export function setTool(name) {
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === name));
   host.dataset.tool = name;
 }
-export function setPick(p) { T.pick = p; view.setSelection(p ? p.sel : []); if (!p) view.setHover(null); emit('pick'); }
+export function setPick(p) { T.pick = p; view.setSelection(p ? p.sel : (T.sel3d || [])); if (!p) view.setHover(null); emit('pick'); }
 
 // ───── 几何小工具 ─────
 const active = () => S.active && sketchById(S.active);
@@ -424,14 +424,43 @@ function solidMove(e) {
   if (!h && want !== 'edges') { const f = view.pickFace(e.clientX, e.clientY); if (f && (want !== 'plane' || (f.info && f.info.planar))) h = { kind: 'face', face: f.face }; }
   view.setHover(h);
 }
+// 三维里的常驻选择（像 SolidWorks：先选面/边，再点圆角、倒角、抽壳、新建草图）
+T.sel3d = [];
+export function clearSel3d() { T.sel3d = []; if (!T.pick) view.setSelection([]); emit('sel3d'); }
+// 一个面 → 它所有的边
+export function faceToEdges(fi) {
+  const B = S.built; if (!B || !B.faceEdges || !B.faceEdges[fi]) return [];
+  return B.faceEdges[fi].map(g => ({ kind: 'edge', group: g, point: view.edgePoint(g) })).filter(x => x.point);
+}
 function solidDown(e) {
+  const add = e.ctrlKey || e.shiftKey;
   if (!T.pick) {
     const sk = sketchUnder(e.clientX, e.clientY);
-    S.selSketch = sk || null; emit('selSketch'); view.drawSketches(); return;
+    if (sk) { S.selSketch = sk; T.sel3d = []; view.setSelection([]); emit('selSketch'); emit('sel3d'); view.drawSketches(); return; }
+    S.selSketch = null; emit('selSketch'); view.drawSketches();
+    // 边优先（离边 7 像素内），否则面；Ctrl/Shift 多选，再点一次取消；点空白清空
+    const ed = view.pickEdge(e.clientX, e.clientY);
+    const f = ed ? null : view.pickFace(e.clientX, e.clientY);
+    const item = ed ? { kind: 'edge', group: ed.group, point: ed.point } : f ? { kind: 'face', face: f.face, point: f.point, planar: !!(f.info && f.info.planar) } : null;
+    if (!item) { clearSel3d(); return; }
+    const same = x => (x.kind === item.kind && (item.kind === 'edge' ? x.group === item.group : x.face === item.face));
+    const i = T.sel3d.findIndex(same);
+    if (add) { if (i >= 0) T.sel3d.splice(i, 1); else T.sel3d.push(item); }
+    else T.sel3d = i >= 0 && T.sel3d.length === 1 ? [] : [item];
+    view.setSelection(T.sel3d); emit('sel3d'); return;
   }
   const k = T.pick.kind;
   if (k === 'edges') {
-    const ed = view.pickEdge(e.clientX, e.clientY); if (!ed) return;
+    const ed = view.pickEdge(e.clientX, e.clientY);
+    if (!ed) {
+      // 点到面上：把这个面的所有边加进来（已经全在里面就全部取消）
+      const f = view.pickFace(e.clientX, e.clientY); if (!f) return;
+      const es = faceToEdges(f.face);
+      const allIn = es.length && es.every(x => T.pick.sel.some(s => s.group === x.group));
+      if (allIn) T.pick.sel = T.pick.sel.filter(s => !es.some(x => x.group === s.group));
+      else for (const x of es) if (!T.pick.sel.some(s => s.group === x.group)) T.pick.sel.push(x);
+      view.setSelection(T.pick.sel); emit('pick'); return;
+    }
     const i = T.pick.sel.findIndex(s => s.group === ed.group);
     if (i >= 0) T.pick.sel.splice(i, 1); else T.pick.sel.push({ kind: 'edge', group: ed.group, point: ed.point });
   } else {
@@ -525,6 +554,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (T.st.start || T.st.first || T.st.place) { T.st = {}; view.setSketchState({ preview: [], dimPreview: null, sel: new Set() }); clearOverlay(); }
     else if (S.active) { setTool('select'); T.sel.clear(); syncSel(); }
+    else if (T.sel3d.length) clearSel3d();
     emit('escape');
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.active && T.sel.size) { const ids = [...T.sel]; T.sel.clear(); txn(() => ids.forEach(id => tryC(() => ops.del(id)))); syncSel(); }

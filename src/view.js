@@ -254,6 +254,7 @@ const matHoverEdge = new THREE.LineBasicMaterial({ color: 0x2f8cff, depthTest: f
 const matSelEdge = new THREE.LineBasicMaterial({ color: 0xff7a00, depthTest: false });
 
 export function setModel(B) {
+  setHover(null); setSelection([]); // 旧模型上的高亮先清掉
   for (const o of [...model.children]) { model.remove(o); o.geometry && o.geometry.dispose(); }
   meshObj = edgeObj = null; meshData = B && B.mesh; edgeData = B && B.edges;
   if (meshData) {
@@ -312,6 +313,15 @@ export function pickEdge(x, y, tol = 7) {
   }
   return best;
 }
+// 取一条边上的一个点（用中间的顶点，避开两端——端点是几条边共用的，按点找边会找错）
+export function edgePoint(g) {
+  if (!edgeData || g < 0 || g >= edgeData.groups.length) return null;
+  const [start, count] = edgeData.groups[g], L = edgeData.lines;
+  const P = i => [L[(start + i) * 3], L[(start + i) * 3 + 1], L[(start + i) * 3 + 2]];
+  const nseg = count / 2;
+  if (nseg <= 1) { const a = P(0), b = P(1); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]; }
+  return P(Math.floor(nseg / 2) * 2); // 第 k 段的起点＝第 k-1 段的终点，是曲线上的内部点
+}
 function edgeGeom(g) {
   const [start, count] = edgeData.groups[g];
   const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(edgeData.lines.slice(start * 3, (start + count) * 3), 3));
@@ -320,7 +330,8 @@ function edgeGeom(g) {
 function faceGeom(fi) {
   const idx = []; const T = meshData.triangles;
   for (let t = 0; t < meshData.triFace.length; t++) if (meshData.triFace[t] === fi) idx.push(T[t * 3], T[t * 3 + 1], T[t * 3 + 2]);
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', meshObj.geometry.getAttribute('position')); g.setIndex(idx); return g;
+  // 用自己的顶点缓冲（共用模型那份的话，高亮清掉时 dispose 会把模型的缓冲一起删掉）
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(meshData.vertices, 3)); g.setIndex(idx); return g;
 }
 let hoverKey = null;
 export function setHover(h) {

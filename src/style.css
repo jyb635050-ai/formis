@@ -197,3 +197,5 @@ body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 #sheetinfo .sheetbtns.ex .mini-btn.pri { background: var(--accent); color: #fff; font-weight: 600; }
 #sheetbar { width: 230px; }
 #sheetview g.dimg .hitl { stroke: transparent !important; stroke-width: 1.6 !important; stroke-dasharray: none !important; pointer-events: stroke; }
+#status .selinfo { color: #ff6a00; }
+body.m3d #status { pointer-events: none; }

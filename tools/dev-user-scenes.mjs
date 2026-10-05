@@ -211,3 +211,26 @@ export async function channel2({ p, click, drag, tap, shot, sleep }) {
   const r = x => x.map(v => Math.round(v));
   console.log(JSON.stringify({ info, before: Object.fromEntries(Object.entries(v0).map(([k, v]) => [k, r(v)])), after: Object.fromEntries(Object.entries(v1).map(([k, v]) => [k, r(v)])) }));
 }
+export async function preselect({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY');
+    [[0, 0], [40, 0], [40, 30], [0, 30]].forEach((q, i, a) => C.line(s, q, a[(i + 1) % 4])); C.finish(s); C.extrude(s, { depth: 20 }); await __cad.idle();
+  });
+  await click('view-iso'); await sleep(600); await click('view-fit'); await sleep(700);
+  const P = q => p.evaluate(q => __cad.project(q), q);
+  const v0 = await p.evaluate(() => __cad.measure().volume);
+  let q = await P([20, 15, 20]); await tap(q.x, q.y); await sleep(300);           // 点顶面
+  const st1 = await p.evaluate(() => document.querySelector('#status').textContent);
+  await p.mouse.move(200, 820); await sleep(300); await shot('pa-face-selected');  // 鼠标移开，选中要保持
+  q = await P([40, 0, 10]); await p.keyboard.down('Control'); await tap(q.x, q.y); await p.keyboard.up('Control'); await sleep(200); // Ctrl 加一条竖边
+  const st2 = await p.evaluate(() => document.querySelector('#status').textContent);
+  await click('feat-chamfer'); await sleep(400);
+  const hint = await p.evaluate(() => document.querySelector('#props .hint').textContent);
+  await p.fill('[data-testid="feat-distance"]', '2'); await click('feat-ok'); await sleep(1500); await shot('pb-chamfered');
+  const v1 = await p.evaluate(() => __cad.measure().volume);
+  const err = await p.evaluate(() => __cad.features().map(f => [f.type, f.error]));
+  // 选一个侧面 → 新建草图直接在它上面
+  q = await P([40, 15, 8]); await tap(q.x, q.y); await sleep(200); await click('new-sketch'); await sleep(900);
+  const sk = await p.evaluate(() => { const a = __cad.active(); return a ? __cad.sketch(a).plane.normal : null; });
+  console.log(JSON.stringify({ st1, st2, hint, v0, v1, err, sketchNormal: sk }));
+}
