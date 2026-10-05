@@ -191,3 +191,9 @@ body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 #sheetview.panning { cursor: grabbing; }
 #sheetinfo .hint2 { margin-top: 4px; font-size: 11px; }
 #sheetinfo .sheetbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+#sheetview.overview { cursor: move; }
+#sheetview.dragview { cursor: grabbing; }
+#sheetinfo .sheetbtns.ex .mini-btn.pri { background: var(--accent); color: #fff; font-weight: 600; }
+#sheetbar { width: 230px; }
+#sheetview g.dimg .hitl { stroke: transparent !important; stroke-width: 1.6 !important; stroke-dasharray: none !important; pointer-events: stroke; }

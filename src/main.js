@@ -420,16 +420,16 @@ async function refreshSheet() {
 function layoutSheet() {
   if (!SH.proj) return;
   const so = S.doc.sheet || {};
-  const key = JSON.stringify([SH.proj.key, so, S.doc.name, getLang()]);
+  const key = JSON.stringify([SH.proj.key, so, S.doc.name, getLang(), SH.tempViews || null]);
   if (key === SH.key && SH.data) return;
-  const keepView = SH.data && SH.data.page[0] === ((PAPER_SIZES[so.size || 'A3'] || [])[0]);
-  SH.data = buildSheet(SH.proj.views, SH.proj.bbox, so.size || 'A3', S.doc.name, { scale: so.scale || 'auto', iso: so.iso !== false, names: so.names !== false, edits: so.dimEdits || {} });
+  const keepView = SH.data && SH.data.page[0] === ((PAPER_SIZES[so.size || 'A4'] || [])[0]);
+  SH.data = buildSheet(SH.proj.views, SH.proj.bbox, so.size || 'A4', S.doc.name, { scale: so.scale || 'auto', iso: so.iso !== false, names: so.names !== false, edits: so.dimEdits || {}, viewEdits: SH.tempViews || so.viewEdits || {} });
   SH.key = key; if (!keepView) SH.fitted = false; renderSheet();
 }
 const PAPER_SIZES = { A4: [297, 210], A3: [420, 297] };
 function renderSheet() {
   const host = $('#sheetview'); if (!host) return;
-  $('[data-testid="sheet-size"]').value = (S.doc.sheet && S.doc.sheet.size) || 'A3';
+  $('[data-testid="sheet-size"]').value = (S.doc.sheet && S.doc.sheet.size) || 'A4';
   if (!SH.data) { host.innerHTML = `<div class="empty" style="position:absolute;left:50%;top:45%;transform:translate(-50%,-50%)">${t('noSolidSheet')}</div>`; $('#sheetinfo').textContent = ''; return; }
   const svg = toSvg(SH.data.drawing, { page: SH.data.page, map: SH.data.map, scale: SH.data.scale, ts: 3.5 / SH.data.scale });
   host.innerHTML = '';
@@ -438,21 +438,25 @@ function renderSheet() {
   // 尺寸热区：细线很难点中，按每个尺寸的外框放一块透明的可点区域
   for (const g of paper.querySelectorAll('g.dimg[data-key]')) {
     try {
-      const b = g.getBBox(), pad = 1.6;
-      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      r.setAttribute('x', b.x - pad); r.setAttribute('y', b.y - pad); r.setAttribute('width', b.width + pad * 2); r.setAttribute('height', b.height + pad * 2);
-      r.setAttribute('class', 'hit'); g.insertBefore(r, g.firstChild);
+      // 热区只放在数字周围和尺寸线上（不覆盖整块外框，免得抢了视图的拖动）
+      const NS = 'http://www.w3.org/2000/svg', tx = g.querySelector('text');
+      if (tx) { const b = tx.getBBox(), pad = 1.2; const r = document.createElementNS(NS, 'rect'); r.setAttribute('x', b.x - pad); r.setAttribute('y', b.y - pad); r.setAttribute('width', b.width + pad * 2); r.setAttribute('height', b.height + pad * 2); r.setAttribute('class', 'hit'); const tr = tx.getAttribute('transform'); if (tr) r.setAttribute('transform', tr); g.insertBefore(r, g.firstChild); }
+      for (const ln of g.querySelectorAll('line.dm')) { const c = ln.cloneNode(); c.setAttribute('class', 'hitl'); g.insertBefore(c, g.firstChild); }
     } catch (e) { }
     if (SH.sel === g.dataset.key) g.classList.add('sel');
   }
   const so = S.doc.sheet || {};
   $('#sheet-scale').value = so.scale && so.scale !== 'auto' ? String(so.scale) : 'auto'; $('#sheet-iso').checked = so.iso !== false; $('#sheet-names').checked = so.names !== false;
   $('#sheetinfo').innerHTML = '';
-  $('#sheetinfo').append(h('div', {}, `${t('scale')} ${SH.data.scaleText}${SH.data.auto ? '（' + t('autoShort') + '）' : ''} · ${t('sheetSize')} ${so.size || 'A3'}`));
+  $('#sheetinfo').append(h('div', {}, `${t('scale')} ${SH.data.scaleText}${SH.data.auto ? '（' + t('autoShort') + '）' : ''} · ${t('sheetSize')} ${so.size || 'A4'}`));
   if (SH.data.overflow) $('#sheetinfo').append(h('div', { class: 'warn' }, t('scaleOverflow')));
   if (so.iso !== false && !SH.data.iso) $('#sheetinfo').append(h('div', {}, t('isoSkipped')));
   const nh = (SH.data.hiddenDims || []).length, nm = Object.values(so.dimEdits || {}).filter(e => e.o).length;
   $('#sheetinfo').append(h('div', { class: 'hint2' }, t('sheetDimHint')));
+  const ex = h('div', { class: 'sheetbtns ex' });
+  for (const f of ['pdf', 'dxf', 'svg']) ex.append(h('button', { class: 'mini-btn pri', onclick: () => $(`[data-testid="export-${f}"]`).click() }, t('exportAs') + ' ' + f.toUpperCase()));
+  $('#sheetinfo').append(ex);
+  if (so.viewEdits && Object.keys(so.viewEdits).length) $('#sheetinfo').append(h('div', { class: 'sheetbtns' }, h('button', { class: 'mini-btn', onclick: () => { ops.setSheet({ viewEdits: {} }); layoutSheet(); } }, t('resetLayout'))));
   const row = h('div', { class: 'sheetbtns' });
   if (SH.sel) row.append(h('button', { class: 'mini-btn', onclick: () => deleteSheetDim(SH.sel) }, t('delDim')));
   if (nh || nm) row.append(h('button', { class: 'mini-btn', onclick: () => { SH.sel = null; ops.setSheet({ dimEdits: {} }); layoutSheet(); } }, `${t('restoreDims')}${nh ? `（${t('deletedN')} ${nh}）` : ''}`));
@@ -465,6 +469,13 @@ function renderSheet() {
   placePaper();
 }
 function placePaper() { const p = $('#sheetview .paper'); if (!p || !SH.data) return; p.style.width = SH.data.page[0] + 'px'; p.style.height = SH.data.page[1] + 'px'; p.style.transform = `translate(${SH.x}px, ${SH.y}px) scale(${SH.z})`; }
+function viewAt(x, y) {
+  const paper = $('#sheetview .paper'); if (!paper || !SH.data || !SH.data.viewRects) return null;
+  const r = paper.getBoundingClientRect(), [, PH] = SH.data.page;
+  const px = (x - r.left) / SH.z, py = PH - (y - r.top) / SH.z, pad = 3;
+  for (const [n, b] of Object.entries(SH.data.viewRects)) if (px >= b[0] - pad && px <= b[2] + pad && py >= b[1] - pad && py <= b[3] + pad) return n;
+  return null;
+}
 function deleteSheetDim(key) {
   if (!key) return;
   const so = S.doc.sheet || {};
@@ -485,10 +496,20 @@ function deleteSheetDim(key) {
       host.setPointerCapture(e.pointerId); renderSheetInfoOnly(); return;
     }
     if (SH.sel && e.button === 0) { SH.sel = null; host.querySelectorAll('g.dimg.sel').forEach(x => x.classList.remove('sel')); renderSheetInfoOnly(); }
+    const vn = e.button === 0 && viewAt(e.clientX, e.clientY);
+    if (vn) { d = { view: vn, x0: e.clientX, y0: e.clientY, base: { ...((S.doc.sheet || {}).viewEdits || {}) } }; host.setPointerCapture(e.pointerId); host.classList.add('dragview'); return; }
     d = { x: e.clientX, y: e.clientY }; host.setPointerCapture(e.pointerId); host.classList.add('panning');
   });
   host.addEventListener('pointermove', e => {
-    if (!d) return;
+    if (!d) { host.classList.toggle('overview', !!viewAt(e.clientX, e.clientY) && !(e.target.closest && e.target.closest('g.dimg'))); return; }
+    if (d.view) {
+      // 拖视图：实时重排（主视图带着俯视、左视；俯视只上下；左视只左右）
+      const dx = (e.clientX - d.x0) / SH.z, dy = -(e.clientY - d.y0) / SH.z, o = d.base[d.view] || [0, 0];
+      const nv = d.view === 'top' ? [0, o[1] + dy] : d.view === 'left' ? [o[0] + dx, 0] : [o[0] + dx, o[1] + dy];
+      SH.tempViews = { ...d.base, [d.view]: nv }; d.moved = true;
+      if (!d.raf) d.raf = requestAnimationFrame(() => { if (d) d.raf = null; layoutSheet(); });
+      return;
+    }
     if (d.dim) {
       const dx = (e.clientX - d.x0) / SH.z, dy = (e.clientY - d.y0) / SH.z;
       if (Math.hypot(dx, dy) * SH.z > 2) d.moved = true;
@@ -497,7 +518,8 @@ function deleteSheetDim(key) {
     SH.x += e.clientX - d.x; SH.y += e.clientY - d.y; d.x = e.clientX; d.y = e.clientY; placePaper();
   });
   host.addEventListener('pointerup', e => {
-    host.classList.remove('panning');
+    host.classList.remove('panning'); host.classList.remove('dragview');
+    if (d && d.view) { const tv = SH.tempViews; SH.tempViews = null; if (d.moved && tv) ops.setSheet({ viewEdits: tv }); layoutSheet(); d = null; return; }
     if (d && d.dim && d.moved) {
       // 纸面毫米（y 向上）累加到这个尺寸的偏移里
       const dx = (e.clientX - d.x0) / SH.z, dy = -(e.clientY - d.y0) / SH.z;
@@ -530,6 +552,7 @@ const api = {
   features: () => S.doc.features.map(f => ({ id: f.id, type: f.type, params: JSON.parse(JSON.stringify(f.params)), suppressed: !!f.suppressed, error: (S.built && S.built.errors && S.built.errors[f.id]) || null })),
   measure: () => { const m = S.built && S.built.measure; return m ? JSON.parse(JSON.stringify(m)) : { volume: 0, area: 0, bbox: [[0, 0, 0], [0, 0, 0]] }; },
   export: f => exportBlob(f),
+  sheetViews: () => (SH.data && SH.data.viewRects ? JSON.parse(JSON.stringify(SH.data.viewRects)) : null), // 调试用：工程图各视图在纸面上的位置（毫米）
   async load(obj) { loadDoc(obj); firstModel = true; await idle(); },
   undo() { closeDimEditor(); if (P && P.live) { cancelProps(); return true; } const r = undo(); return r; },
   redo() { closeDimEditor(); return redo(); },

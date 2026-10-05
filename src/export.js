@@ -51,9 +51,17 @@ export function dimGeom(d, ts) {
     const ext = v => { const u = unit(sub(v[1], v[0])); return [v[0], add(v[1], mul(u, ts * 0.6))]; };
     if (Math.hypot(...sub(e1, d.p1)) > 1e-9) segs.push(ext([d.p1, e1])); if (Math.hypot(...sub(e2, d.p2)) > 1e-9) segs.push(ext([d.p2, e2]));
     segs.push([e1, e2]);
-    const dd = unit(sub(e2, e1)); arrow(e1, mul(dd, -1)); arrow(e2, dd);
+    const dd = unit(sub(e2, e1));
+    const len = Math.hypot(...sub(e2, e1));
+    let tpos = dot(sub(d.at, e1), dd);
+    // 尺寸太短放不下箭头和数字：箭头翻到界线外侧朝里指；数字（没被手动挪过时）放到外面
+    const tw = Math.max(1, String(d.label || fmt(d.value)).length) * ts * 0.62;
+    if (len < ts * 2.4) {
+      arrow(e1, dd); arrow(e2, mul(dd, -1));
+      segs.push([e1, sub(e1, mul(dd, ts * 1.6))], [e2, add(e2, mul(dd, ts * 1.6))]);
+      if (Math.abs(tpos - len / 2) < 1e-6) tpos = len + ts * 1.8 + tw / 2;
+    } else { arrow(e1, mul(dd, -1)); arrow(e2, dd); }
     // 数字沿尺寸线放在 at 投影处；放到界线外面时尺寸线延长过去
-    const len = Math.hypot(...sub(e2, e1)), tpos = dot(sub(d.at, e1), dd);
     if (tpos < 0) segs.push([e1, add(e1, mul(dd, tpos - ts * 0.4))]);
     if (tpos > len) segs.push([e2, add(e1, mul(dd, tpos + ts * 0.4))]);
     rot = (Math.atan2(dd[1], dd[0]) * 180) / Math.PI; if (rot > 90.001 || rot < -89.999) rot += 180;

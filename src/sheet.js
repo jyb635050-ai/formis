@@ -77,10 +77,14 @@ function planView(name, f, ctx) {
   return P;
 }
 
-export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
-  const paper = PAPER[size] || PAPER.A3, [PW, PH] = paper;
-  const m = 10, tbW = 150, tbH = 32;
+export function buildSheet(proj, bbox, size = 'A4', name = '', opt = {}) {
+  const paper = PAPER[size] || PAPER.A4, [PW, PH] = paper;
+  const m = 10, tbW = size === 'A4' ? 130 : 150, tbH = 32;
+  // 绘图区＝图框以内；右下角标题栏那一块（外扩 5mm）任何视图和尺寸都不许进
   const area = { x0: m + 6, y0: m + 6, x1: PW - m - 6, y1: PH - m - 6 };
+  const TBR = [PW - m - tbW - 5, m, PW - m, m + tbH + 5];
+  const hitsTB = r => r[0] < TBR[2] && r[2] > TBR[0] && r[1] < TBR[3] && r[3] > TBR[1];
+  const AW = area.x1 - area.x0, AH = area.y1 - area.y0;
   const F = featuresOf(proj.front), Tf = featuresOf(proj.top), Lf = featuresOf(proj.left);
   const topP = planView('top', Tf, {});
   const ctx = { topX: [Tf.box[0], Tf.box[2], ...topP.below], topY: [Tf.box[1], Tf.box[3], ...topP.left], frontZ: [F.box[1], F.box[3]], tanX: Tf.arcEnds.map(p => p[0]), tanY: Tf.arcEnds.map(p => p[1]) };
@@ -88,24 +92,56 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   ctx.frontZ.push(...frontP.left);
   const leftP = planView('left', Lf, ctx);
   const W = b => b[2] - b[0], H = b => b[3] - b[1];
-  const gapH = Math.max(16, leftP.space.above ? 12 : 16), gapV = 14;
+  const showNames = opt.names !== false, nameH = showNames ? 8 : 0;
+  const gapH = 16, gapV = 12 + nameH;
   const leftCol = Math.max(frontP.space.left, topP.space.left);
   const topRow = Math.max(frontP.space.above, leftP.space.above);
-  const fits = s => {
-    const w = leftCol + W(F.box) * s + gapH + W(Lf.box) * s + leftP.space.right + 14; // 14：Ø/R 引线余量
-    const h = topRow + H(F.box) * s + gapV + H(Tf.box) * s + topP.space.below + 6;
-    return w <= area.x1 - area.x0 && h <= area.y1 - area.y0;
+  const bw = s => leftCol + W(F.box) * s + gapH + W(Lf.box) * s + leftP.space.right + 10; // 10：Ø/R 引线余量
+  const bh = s => topRow + H(F.box) * s + gapV + H(Tf.box) * s + topP.space.below + nameH;
+  // 摆放：三视图整组优先居中；碰到标题栏就往上挪，再不行往左靠；都不行算放不下
+  // 整组的两块：上排（主视＋左视，连尺寸）、下块（俯视，连尺寸，只在左边那一列）
+  const rectsAt = (s, bx, by) => {
+    const fy = by + topP.space.below + nameH + H(Tf.box) * s + gapV;
+    return [
+      [bx, by, bx + leftCol + Math.max(W(F.box), W(Tf.box)) * s + 10, by + topP.space.below + nameH + H(Tf.box) * s], // 俯视块
+      [bx, fy - nameH, bx + bw(s), fy + H(F.box) * s + topRow],                                                          // 主视＋左视一排
+    ];
   };
+  const placeBlock = s => {
+    if (bw(s) > AW || bh(s) > AH) return null;
+    const cx = area.x0 + (AW - bw(s)) / 2, cy = area.y0 + (AH - bh(s)) / 2;
+    const cands = [[cx, cy]];
+    for (let by = cy; by <= area.y1 - bh(s) + 1e-6; by += 2) cands.push([cx, by]);
+    cands.push([cx, area.y1 - bh(s)]);
+    for (let bx = cx; bx >= area.x0 - 1e-6; bx -= 2) cands.push([bx, area.y1 - bh(s)], [bx, cy]);
+    cands.push([area.x0, area.y1 - bh(s)]);
+    for (const [bx, by] of cands) if (!rectsAt(s, bx, by).some(hitsTB)) return [bx, by];
+    return null;
+  };
+  const fits = s => !!placeBlock(s);
   let scale = opt.scale && opt.scale !== 'auto' ? +opt.scale : null, auto = !scale;
   if (!scale) scale = SCALES.find(fits) || SCALES[SCALES.length - 1];
   const s = scale, overflow = !fits(s);
-  // 纸面位置（毫米，左下为原点）：整组视图在绘图区里居中
-  const blockW = leftCol + W(F.box) * s + gapH + W(Lf.box) * s + leftP.space.right;
-  const blockH = topRow + H(F.box) * s + gapV + H(Tf.box) * s + topP.space.below;
-  const bx = area.x0 + Math.max(0, (area.x1 - area.x0 - blockW - 14) / 2), by = area.y0 + Math.max(0, (area.y1 - area.y0 - blockH) / 2);
-  const posFront = [bx + leftCol, by + topP.space.below + H(Tf.box) * s + gapV];
-  const posTop = [posFront[0], by + topP.space.below];
-  const posLeft = [posFront[0] + W(F.box) * s + gapH, posFront[1]];
+  // 轴测图：优先放在三视图右边（同一行居中），放不下再缩小；还放不下就塞到左视图下方
+  const ib = opt.iso !== false && proj.iso && proj.iso.visible.length ? boxOf(proj.iso.visible) : null;
+  let isoK = null, isoSide = false;
+  if (ib) {
+    const room = AW - bw(s) - 14;
+    isoK = [1, 0.5, 0.25, 0.2, 0.1, 0.05].find(k => W(ib) * s * k <= room && H(ib) * s * k + nameH <= AH - tbH - 5) || null;
+    isoSide = !!isoK;
+  }
+  // 整组居中（带上右边的轴测图一起算宽度）；碰标题栏就按上面的规则挪
+  let [bx, by] = placeBlock(s) || [area.x0, area.y0 + Math.max(0, (AH - bh(s)) / 2)];
+  if (isoSide) {
+    const gx = area.x0 + Math.max(0, (AW - bw(s) - 14 - W(ib) * s * isoK) / 2);
+    if (!rectsAt(s, gx, by).some(hitsTB)) bx = Math.min(bx, gx); else bx = Math.min(bx, area.x0 + Math.max(0, AW - bw(s) - 14 - W(ib) * s * isoK));
+  }
+  // 用户拖动视图的偏移（纸面毫米，y 向上）：主视图带着俯视、左视一起走；俯视只能上下、左视只能左右（保持投影对齐）；轴测图随意
+  const ve = opt.viewEdits || {}, vf = ve.front || [0, 0], vt = ve.top || [0, 0], vl = ve.left || [0, 0], vi = ve.iso || [0, 0];
+  const posTop0 = [bx + leftCol, by + topP.space.below + nameH];
+  const posFront = [posTop0[0] + vf[0], posTop0[1] + H(Tf.box) * s + gapV + vf[1]];
+  const posTop = [posFront[0], posTop0[1] + vf[1] + vt[1]];
+  const posLeft = [posFront[0] + W(F.box) * s + gapH + vl[0], posFront[1]];
   // 视图坐标 → 图纸坐标（真实尺寸；纸面＝图纸×比例）
   const place = (box, pos, k = 1) => p => [(p[0] - box[0]) * k + pos[0] / s, (p[1] - box[1]) * k + pos[1] / s];
   const ents = [], dims = [], texts = [];
@@ -117,6 +153,11 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   };
   const tfF = place(F.box, posFront), tfT = place(Tf.box, posTop), tfL = place(Lf.box, posLeft);
   addView(proj.front, tfF); addView(proj.top, tfT); addView(proj.left, tfL);
+  const viewRects = {
+    front: [posFront[0], posFront[1], posFront[0] + W(F.box) * s, posFront[1] + H(F.box) * s],
+    top: [posTop[0], posTop[1], posTop[0] + W(Tf.box) * s, posTop[1] + H(Tf.box) * s],
+    left: [posLeft[0], posLeft[1], posLeft[0] + W(Lf.box) * s, posLeft[1] + H(Lf.box) * s],
+  };
   // 中心线
   const center = (P, tf) => { for (const c of P.centers) { const q = tf(c.c), e = c.r + 2 / s; ents.push({ type: 'line', a: [q[0] - e, q[1]], b: [q[0] + e, q[1]], layer: 'CENTER', dashed: true }, { type: 'line', a: [q[0], q[1] - e], b: [q[0], q[1] + e], layer: 'CENTER', dashed: true }); } };
   center(topP, tfT); center(frontP, tfF); center(leftP, tfL);
@@ -158,29 +199,28 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   const lab = (txt, x, y) => texts.push({ at: [x, y], h: 3.5 / s, text: txt, layer: 'TEXT', anchor: 'middle' });
   const vb = (box, tf) => { const a = tf([box[0], box[1]]), b = tf([box[2], box[3]]); return [a[0], a[1], b[0], b[1]]; };
   const FB = vb(F.box, tfF), TB = vb(Tf.box, tfT), LB = vb(Lf.box, tfL);
-  const showNames = opt.names !== false;
   if (showNames) { lab(t('front'), (FB[0] + FB[2]) / 2, FB[1] - 6 / s); lab(t('left'), (LB[0] + LB[2]) / 2, LB[1] - 6 / s); lab(t('top'), (TB[0] + TB[2]) / 2, TB[1] - (topP.space.below + 6) / s); }
-  // 轴测图：放在左视图下方、标题栏上方那块；放不下就缩小（1、1/2、1/4…）
+  // 轴测图
   let isoInfo = null;
-  if (opt.iso !== false && proj.iso && proj.iso.visible.length) {
-    const ib = boxOf(proj.iso.visible);
-    const regions = [
-      [posLeft[0], area.y0 + tbH + 8, area.x1, posLeft[1] - (showNames ? 12 : 6)],                                  // 左视图下方、标题栏上方
-      [posLeft[0] + W(Lf.box) * s + leftP.space.right + 12, area.y0 + tbH + 8, area.x1, area.y1],                // 左视图右边整列
-    ];
-    let best = null;
-    for (const [rx0, ry0, rx1, ry1] of regions) {
-      const k = [1, 0.5, 0.25, 0.2, 0.1, 0.05].find(kk => W(ib) * s * kk <= rx1 - rx0 - 4 && H(ib) * s * kk <= ry1 - ry0 - 6);
-      if (k && (!best || k > best.k)) best = { k, rx0, ry0, rx1, ry1 };
+  if (ib) {
+    let k = isoK, pos = null;
+    if (isoSide) {
+      // 三视图右边：和主视图上下居中
+      const x0 = bx + bw(s) + 14, fy = (viewRects.front[1] + viewRects.front[3]) / 2;
+      pos = [x0, Math.max(area.y0 + nameH, Math.min(area.y1 - H(ib) * s * k, fy - H(ib) * s * k / 2))];
+      if (hitsTB([pos[0], pos[1] - nameH, pos[0] + W(ib) * s * k, pos[1] + H(ib) * s * k])) pos[1] = Math.min(area.y1 - H(ib) * s * k, TBR[3] + nameH + 2);
+    } else {
+      // 退一步：左视图下方、俯视图右边那块
+      const rx0 = viewRects.left[0], rx1 = area.x1, ry0 = TBR[3] + nameH + 2, ry1 = viewRects.left[1] - nameH - 4;
+      k = [1, 0.5, 0.25, 0.2, 0.1, 0.05].find(kk => W(ib) * s * kk <= rx1 - rx0 - 4 && H(ib) * s * kk <= ry1 - ry0);
+      if (k) pos = [rx0 + (rx1 - rx0 - W(ib) * s * k) / 2, ry0 + (ry1 - ry0 - H(ib) * s * k) / 2];
     }
-    const k = best && best.k;
-    if (k) {
-      const { rx0, ry0, rx1, ry1 } = best;
-      const pos = [rx0 + (rx1 - rx0 - W(ib) * s * k) / 2, ry0 + 6 + (ry1 - ry0 - 6 - H(ib) * s * k) / 2];
-      const tfI = place(ib, pos, k);
-      addView(proj.iso, tfI, 'ISO');
+    if (k && pos) {
+      pos = [pos[0] + vi[0], pos[1] + vi[1]];
+      addView(proj.iso, place(ib, pos, k), 'ISO');
+      viewRects.iso = [pos[0], pos[1], pos[0] + W(ib) * s * k, pos[1] + H(ib) * s * k];
       isoInfo = { scale: s * k };
-      if (showNames) lab(t('iso') + (k !== 1 ? ` (${scaleText(s * k)})` : ''), pos[0] / s + W(ib) * k / 2, pos[1] / s - 5 / s);
+      if (showNames) lab(t('iso') + (k !== 1 ? ` (${scaleText(s * k)})` : ''), pos[0] / s + W(ib) * k / 2, pos[1] / s - 6 / s);
     }
   }
   // 图框与标题栏（图纸坐标＝纸面/比例）
@@ -201,5 +241,5 @@ export function buildSheet(proj, bbox, size = 'A3', name = '', opt = {}) {
   cell(2, t('drawnBy'), 'GlassCAD');
   cell(3, t('date'), date + (getLang() === 'zh' ? '   第一角投影' : '   First-angle'));
   const map = p => [p[0] * s, PH - p[1] * s];
-  return { drawing: { ents, dims, texts }, page: paper.slice(), scale: s, auto, overflow, iso: isoInfo, map, scaleText: scaleText(s), hiddenDims: hidden };
+  return { drawing: { ents, dims, texts }, page: paper.slice(), scale: s, auto, overflow, iso: isoInfo, map, scaleText: scaleText(s), hiddenDims: hidden, viewRects };
 }

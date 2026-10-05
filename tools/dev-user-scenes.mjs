@@ -176,3 +176,38 @@ export async function sheetedit({ p, click, drag, tap, shot, sleep }) {
   await sleep(400); const back80 = await box('front:ao');
   console.log(JSON.stringify({ keys, n0, b80, after80, n1, deleted70: !has70, undo70, restore, back80 }));
 }
+export async function channel({ p, click, drag, tap, shot, sleep }) {
+  // 用户截图里那种细长槽形件：24×8 截面、高 89、壁厚 1
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY');
+    const P = [[0, 0], [24, 0], [24, 1], [1, 1], [1, 7], [24, 7], [24, 8], [0, 8]];
+    P.forEach((q, i) => C.line(s, q, P[(i + 1) % P.length])); C.finish(s); C.extrude(s, { depth: 89 }); await __cad.idle();
+    document.querySelector('#pname').value = '666'; document.querySelector('#pname').dispatchEvent(new Event('change'));
+  });
+  await click('make-sheet'); await sleep(2500); await shot('z1-a4');
+  const info = await p.evaluate(() => document.querySelector('#sheetinfo').textContent);
+  // 拖主视图（带着俯视、左视一起走）
+  const vr = await p.evaluate(() => { const g = document.querySelector('#sheetview .paper').getBoundingClientRect(); return [g.left, g.top]; });
+  const before = await p.evaluate(async () => { const t = await (await __cad.export('dxf')).text(); return t.length; });
+  const fr = await p.evaluate(() => { const r = document.querySelector('#sheetview .paper svg line.vs').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await drag(fr, [fr[0] - 60, fr[1] + 20]); await sleep(500); await shot('z2-dragged');
+  const edits = await p.evaluate(() => JSON.stringify((window.__cad && 1) && JSON.parse(localStorage.getItem('glasscad.doc.v1') || '{}').sheet));
+  console.log(JSON.stringify({ info, edits }));
+}
+export async function channel2({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY');
+    const P = [[0, 0], [24, 0], [24, 1], [1, 1], [1, 7], [24, 7], [24, 8], [0, 8]];
+    P.forEach((q, i) => C.line(s, q, P[(i + 1) % P.length])); C.finish(s); C.extrude(s, { depth: 89 }); await __cad.idle();
+    document.querySelector('#pname').value = '666'; document.querySelector('#pname').dispatchEvent(new Event('change'));
+  });
+  await click('make-sheet'); await sleep(2500); await shot('z1-a4');
+  const scr = async (name) => p.evaluate(n => { const v = __cad.sheetViews()[n]; const pr = document.querySelector('#sheetview .paper').getBoundingClientRect(); const z = pr.width / 297; return [pr.left + (v[0] + v[2]) / 2 * z, pr.top + (210 - (v[1] + v[3]) / 2) * z]; }, name);
+  const v0 = await p.evaluate(() => __cad.sheetViews());
+  const f = await scr('front'); await drag(f, [f[0] - 80, f[1] + 10]); await sleep(500);
+  const i = await scr('iso'); await drag(i, [i[0] + 20, i[1] - 30]); await sleep(500); await shot('z2-dragged');
+  const v1 = await p.evaluate(() => __cad.sheetViews());
+  const info = await p.evaluate(() => document.querySelector('#sheetinfo').textContent);
+  const r = x => x.map(v => Math.round(v));
+  console.log(JSON.stringify({ info, before: Object.fromEntries(Object.entries(v0).map(([k, v]) => [k, r(v)])), after: Object.fromEntries(Object.entries(v1).map(([k, v]) => [k, r(v)])) }));
+}

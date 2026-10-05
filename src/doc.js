@@ -3,7 +3,7 @@ import { solveSketch, ptOf, kindOf } from './solver.js';
 import { PLANES, describe, planeAt, V } from './kernel/build.js';
 
 const KEY = 'glasscad.doc.v1';
-export function newDoc() { return { v: 1, seq: 1, name: '', sketches: [], features: [], drawing2d: null, sheet: { size: 'A3' }, dimStyle: null }; }
+export function newDoc() { return { v: 1, seq: 1, name: '', sketches: [], features: [], drawing2d: null, sheet: { size: 'A4' }, dimStyle: null }; }
 
 export const S = {
   doc: newDoc(),
