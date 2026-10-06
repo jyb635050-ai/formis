@@ -111,3 +111,4 @@
 - 界面名称、标题、图标（方块里一个立体线框＝平面+三维）、PDF/3MF 元数据、工程图标题栏「制图」、项目文件后缀 .formis.json 都已改
 - localStorage 键保持 glasscad.*（同一个域名 jyb635050-ai.github.io，用户自动保存的图纸能直接带到新网址）；本地目录名 D:\blender\GlassCAD 不改
 - 判卷不改：accept.mjs 本地用 /glass-cad/ 子路径只是模拟挂载路径，和名字无关；线上用 --url https://jyb635050-ai.github.io/formis/
+- 图标：public/favicon.svg（深蓝玻璃圆角方块；立方体左面是带虚线和尺寸线的图纸线框＝平面制图，顶面和右面是渐变实体＝三维建模），同时用作网页图标和左上角 logo；16px 也能认
