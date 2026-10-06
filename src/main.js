@@ -351,7 +351,16 @@ $('#ds-color').addEventListener('change', e => ops.setDimStyle({ color: e.target
 $('#ds-color-reset').addEventListener('click', e => { e.preventDefault(); ops.setDimStyle({ color: '' }); syncDimStyle(); });
 $('#ds-text').addEventListener('input', e => { $('#ds-text-v').textContent = e.target.value + 'px'; });
 $('#ds-text').addEventListener('change', e => ops.setDimStyle({ text: +e.target.value }));
-$('#ds-show').addEventListener('change', e => { S.showDims = e.target.checked; view.drawSketches(); });
+// 一键显示/隐藏全部尺寸（左侧工具条的眼睛按钮；尺寸样式面板里的勾选框同步）
+function setShowDims(v, quiet) {
+  S.showDims = v; try { localStorage.setItem('glasscad.showDims', v ? '1' : '0'); } catch (e) { }
+  $('#ds-show').checked = v; $('#dims-toggle').classList.toggle('off', !v);
+  view.drawSketches(); if (!quiet) toast(t(v ? 'dimsShown' : 'dimsHidden'));
+}
+$('#ds-show').addEventListener('change', e => setShowDims(e.target.checked, true));
+$('#dims-toggle').addEventListener('click', () => setShowDims(S.showDims === false));
+try { if (localStorage.getItem('glasscad.showDims') === '0') setShowDims(false, true); } catch (e) { }
+on(w => { if (w === 'showDims') setShowDims(S.showDims !== false, true); });
 document.addEventListener('pointerdown', e => { const p = $('#dimstyle'); if (!p.hidden && !p.contains(e.target) && !e.target.closest('#dim-style-btn')) { p.hidden = true; $('#dim-style-btn').classList.remove('on'); } });
 
 // ───── 正视于：选中的平面 → 正在编辑/选中的草图 ─────

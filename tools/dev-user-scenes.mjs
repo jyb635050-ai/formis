@@ -288,3 +288,26 @@ export async function box3d({ p, click, drag, tap, shot, sleep }) {
   const st3 = await p.evaluate(() => document.querySelector('#status').textContent);
   console.log(JSON.stringify({ st1, entsAfterPaste: n, st3 }));
 }
+// 标线距：点第一条线后，移到第二条线上它要高亮、预览变成间距；一键显示/隐藏尺寸
+export async function dimhover({ p, click, drag, tap, shot, sleep }) {
+  await click('new-sketch'); await sleep(300); await click('plane-XY'); await sleep(700);
+  const S = uv => p.evaluate(uv => __cad.toScreen(__cad.active(), uv), uv);
+  const line = async (a, b) => { await click('tool-line'); let q = await S(a); await tap(q.x, q.y); q = await S(b); await tap(q.x, q.y); await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); };
+  await line([0, 0], [60, 0]); await line([0, 25], [60, 25]);
+  await click('tool-dim');
+  let q = await S([30, 0]); await tap(q.x, q.y);
+  q = await S([30, 25]); await p.mouse.move(q.x, q.y, { steps: 6 }); await sleep(300);
+  const st = await p.evaluate(() => ({ readout: document.querySelector('#readout')?.innerText, hidden: document.querySelector('#readout')?.hidden, preview: [...document.querySelectorAll('.dim-label')].map(l => l.textContent) }));
+  await shot('dimhover');
+  await tap(q.x, q.y); q = await S([-10, 12]); await tap(q.x, q.y); await sleep(150); await p.keyboard.press('Enter'); await sleep(200);
+  const dims = await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => [d.type, d.value]));
+  const n0 = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
+  await click('tool-select'); await click('dims-toggle'); await sleep(200);
+  const n1 = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
+  await shot('dimhidden');
+  await click('dims-toggle'); await sleep(200);
+  const n2 = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
+  await click('dims-toggle'); await click('tool-dim'); await sleep(200);
+  const n3 = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
+  console.log(JSON.stringify({ st, dims, n0, n1, n2, autoShowOnDimTool: n3 }));
+}

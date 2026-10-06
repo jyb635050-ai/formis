@@ -51,6 +51,7 @@ function showReadout(x, y, lines) {
 
 export function setTool(name) {
   T.tool = name; T.st = {}; view.setSketchState({ preview: [], dimPreview: null }); clearOverlay(); closeNum();
+  if (name === 'dim' && S.showDims === false) { S.showDims = true; emit('showDims'); } // 尺寸藏着的时候去标尺寸，自动显示出来
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === name));
   host.dataset.tool = name;
 }
@@ -291,7 +292,20 @@ function sketchMove(e) {
     ov.innerHTML = ''; readout.hidden = true;
     if (T.tool === 'dim' && T.st.place) {
       const uv = view.screenToPlane(s.plane, x, y);
-      if (uv) { const d = decideDim(s, T.st, uv); view.setSketchState({ preview: [], hover: null, dimPreview: { id: '#preview', ...d } }); return; }
+      if (uv) {
+        // 已点了第一个对象：鼠标移到可组合的第二个对象上时，它也高亮，预览直接变成两对象尺寸（间距/角度/点到线）
+        let st = T.st, hov = null;
+        if (st.first && !st.combined) {
+          const tg = pickTarget(s, x, y);
+          const c = tg && tg.id !== st.first.id ? combine(st.first, tg) : null;
+          if (c) {
+            st = c; hov = tg.kind === 'pt' ? null : tg.id;
+            if (tg.kind === 'pt') drawSnap(s.id, { uv: ptOf(s, tg.ref), kind: 'end' });
+            showReadout(x, y, [`<b>${t(c.type === 'ldist' ? 'dimPairDist' : c.type === 'angle' ? 'dimPairAng' : 'dimPairPt')}</b>`]);
+          }
+        }
+        const d = decideDim(s, st, uv); view.setSketchState({ preview: [], hover: hov, dimPreview: { id: '#preview', ...d } }); return;
+      }
     }
   }
   const he = T.tool === 'select' || T.tool === 'dim' ? hitEnt(s, x, y) : null;

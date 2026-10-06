@@ -202,3 +202,7 @@ body.m3d #status { pointer-events: none; }
 .overlay .box.cross { fill: rgba(48, 164, 108, .12); stroke: #30a46c; stroke-dasharray: 5 4; }
 .overlay .box:not(.cross) { stroke-dasharray: none; }
 .bar.h .cap { white-space: nowrap; }
+/* 一键显示/隐藏尺寸：隐藏时眼睛上加一道斜杠、按钮变淡红提示 */
+#dims-toggle .slash { display: none; }
+#dims-toggle.off .slash { display: inline; }
+#dims-toggle.off { color: #e5484d; }
