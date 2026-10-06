@@ -125,7 +125,7 @@ function fitBox(points, quat, fill = 0.8) {
 }
 export function viewTo(name, instant) {
   const q = VIEWS[name]();
-  const pts = modelPoints();
+  const pts = modelPoints() || (!S.active && shownSketchPoints());
   const to = pts ? { quat: q, ...fitBox(pts, q) } : { quat: q };
   if (instant) { C.quat.copy(q); if (to.target) { C.target.set(...to.target); C.scale = to.scale; } dirty = true; return; }
   animate(to);
@@ -137,13 +137,30 @@ export function lookNormal(normal, up) {
   animate({ quat: quatFromDir(n.clone().negate(), u) }, 300);
 }
 export function fitAll(instant) {
-  const pts = modelPoints() || sketchPoints(); if (!pts) return;
+  const pts = modelPoints() || (S.active ? sketchPoints() : shownSketchPoints()); if (!pts) return;
   const to = fitBox(pts, C.quat);
   if (instant) { C.target.set(...to.target); C.scale = to.scale; dirty = true; } else animate(to);
 }
 function modelPoints() {
   const b = S.built && S.built.measure; if (!b || !(b.volume > 0)) return null;
   const P = []; for (const x of [b.bbox[0][0], b.bbox[1][0]]) for (const y of [b.bbox[0][1], b.bbox[1][1]]) for (const z of [b.bbox[0][2], b.bbox[1][2]]) P.push([x, y, z]); return P;
+}
+// 画面上显示的草图的实际图形范围（刷新后没有实体时用它把图居中）
+function shownSketchPoints() {
+  const P = [];
+  for (const sid of shown) {
+    const s = sketchById(sid); if (!s) continue;
+    for (const e of s.ents) {
+      const uv = e.type === 'line' ? [e.a, e.b] : e.type === 'text' ? [e.at] : e.c ? [[e.c[0] - e.r, e.c[1] - e.r], [e.c[0] + e.r, e.c[1] + e.r]] : [];
+      for (const p of uv) P.push(toWorld(s.plane, p));
+    }
+  }
+  if (!P.length) return null;
+  // 太小的图（一个字、一个点）至少按 20mm 见方框，免得放大到满屏
+  const lo = [0, 1, 2].map(k => Math.min(...P.map(p => p[k]))), hi = [0, 1, 2].map(k => Math.max(...P.map(p => p[k])));
+  const c = lo.map((x, k) => (x + hi[k]) / 2);
+  if (Math.max(...hi.map((x, k) => x - lo[k])) < 20) for (const dx of [-10, 10]) for (const dy of [-10, 10]) for (const dz of [-10, 10]) P.push([c[0] + dx, c[1] + dy, c[2] + dz]);
+  return P;
 }
 function sketchPoints() { const s = S.active && sketchById(S.active); if (!s) return null; return [[-10, -50], [100, 60]].map(uv => toWorld(s.plane, uv)); }
 // 正对草图：u∈[−10,100]、v∈[−50,60] 完整落在空闲区
@@ -408,7 +425,7 @@ export function drawSketches() {
   if (S.mode === '3d') {
     if (S.active) show.push(sketchById(S.active));
     else {
-      const used = new Set(S.doc.features.map(f => f.sketch));
+      const used = new Set(S.doc.features.filter(f => !f.suppressed).map(f => f.sketch)); // 特征被压缩了，它的草图要显示出来
       for (const s of S.doc.sketches) if (s.id !== S.doc.drawing2d && (!used.has(s.id) || s.id === S.selSketch)) show.push(s);
     }
   }

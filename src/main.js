@@ -43,8 +43,9 @@ const kernel = createKernel({
     view.setModel(m.mesh ? m : null);
     renderTree(); renderInfo(); if (P && P.live) updatePropsError();
     if (S.mode === 'sheet') refreshSheet();
-    if (firstModel && m.mesh) { firstModel = false; view.viewTo('iso', true); }
     view.drawSketches();
+    // 刷新后第一次重建完：模型（没有实体就用显示着的草图）居中放进画面
+    if (firstModel && (m.mesh || (S.mode === '3d' && !S.active))) { firstModel = false; view.viewTo('iso', true); }
   },
 });
 let firstModel = true;
@@ -626,5 +627,5 @@ syncMode(); renderTree(); renderStatus();
 initSolver().then(() => {
   ready.ui = true; renderStatus();
   emit('all');
-  view.viewTo('iso', true);
+  view.drawSketches(); view.viewTo('iso', true);
 }).catch(e => toast('求解器加载失败：' + e.message, true));

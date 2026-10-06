@@ -311,3 +311,22 @@ export async function dimhover({ p, click, drag, tap, shot, sleep }) {
   const n3 = await p.evaluate(() => document.querySelectorAll('.dim-label[data-dim]').length);
   console.log(JSON.stringify({ st, dims, n0, n1, n2, autoShowOnDimTool: n3 }));
 }
+// 刷新后图要在画面正中：有实体按实体居中；拉伸被压缩时草图要显示并居中
+export async function reloadfit({ p, click, drag, tap, shot, sleep }) {
+  // 故意画在离原点很远的地方
+  await p.evaluate(async () => { const c = __cad.cmd; const sid = await c.sketch('XY'); const P = [[150, 120], [190, 120], [190, 150], [150, 150]]; for (let i = 0; i < 4; i++) c.line(sid, P[i], P[(i + 1) % 4]); c.finish(sid); c.extrude(sid, { depth: 20 }); await __cad.idle(); });
+  await sleep(800);
+  await p.mouse.move(700, 450); await p.mouse.down({ button: 'middle' }); await p.mouse.move(1300, 850, { steps: 8 }); await p.mouse.up({ button: 'middle' }); // 平移到画面外
+  await sleep(800);
+  const ctr = () => p.evaluate(() => { const b = __cad.measure && __cad.measure(); return b; });
+  const rl = async n => { await p.reload(); await p.waitForFunction(() => window.__cad && window.__cad.ready.kernel, null, { timeout: 30000 }); await __idle(); await sleep(1500); await shot(n); };
+  const __idle = () => p.evaluate(() => __cad.idle());
+  await rl('reload-model');
+  const sid = await p.evaluate(() => __cad.sketches()[0]);
+  const at = () => p.evaluate(sid => [[150, 120], [190, 150], [170, 135]].map(uv => __cad.toScreen(sid, uv)), sid);
+  const m1 = await at();
+  const f = (await p.evaluate(() => __cad.features()))[0];
+  await p.evaluate(fid => __cad.cmd.suppress(fid, true), f.id); await sleep(1500);
+  await rl('reload-suppressed');
+  console.log(JSON.stringify({ feats: await p.evaluate(() => __cad.features()), model: m1, suppressed: await at() }));
+}

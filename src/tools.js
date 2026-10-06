@@ -503,7 +503,7 @@ function currentValue(s, type, refs) { return measureDim(s, type, refs); }
 
 // ───── 三维：悬停、点选草图、拾取平面/边/面 ─────
 function sketchUnder(x, y) {
-  const used = new Set(S.doc.features.map(f => f.sketch));
+  const used = new Set(S.doc.features.filter(f => !f.suppressed).map(f => f.sketch));
   for (const sid of view.shownSketches()) { if (used.has(sid)) continue; const s = sketchById(sid); if (s && hitEnt(s, x, y, 7)) return sid; }
   return null;
 }
@@ -576,7 +576,7 @@ function box3d(st, e, phase) {
   if (!T.pick || T.pick.kind === 'edges') {
     if (!T.pick) {
       let best = null;
-      const used = new Set(S.doc.features.map(f => f.sketch));
+      const used = new Set(S.doc.features.filter(f => !f.suppressed).map(f => f.sketch));
       for (const sid of view.shownSketches()) { const sk = sketchById(sid); if (!sk) continue; const ids = boxPick(sk, ax, ay, bx, by); if (ids.size && (!best || ids.size > best.ids.size)) best = { sid, ids, used: used.has(sid) }; }
       if (best) { onEditSketch(best.sid, { keepView: true }); T.sel = best.ids; syncSel(); toast(t('boxSketch').replace('{n}', best.ids.size)); return; }
     }
