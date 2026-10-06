@@ -217,14 +217,19 @@ host.addEventListener('pointermove', e => {
     navMove(dx, dy); return;
   }
   if (leftPending && (e.buttons & 1)) {
-    if (Math.hypot(e.clientX - leftPending.x, e.clientY - leftPending.y) > 4) leftPending.moved = true; // 拖动了就不算点击（左键只管选择）
+    if (Math.hypot(e.clientX - leftPending.x, e.clientY - leftPending.y) > 4) leftPending.moved = true; // 拖动了就是框选，不算点击
+    if (leftPending.moved && handler && handler.box) handler.box(leftPending, e, 'move');
     return;
   }
   if (handler && handler.move) handler.move(e);
 });
 host.addEventListener('pointerup', e => {
   if (drag && e.button === drag.b) { endDrag(e); return; }
-  if (leftPending && e.button === 0) { const p = leftPending; leftPending = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } if (!p.moved && handler && handler.down) handler.down(p.ev); return; }
+  if (leftPending && e.button === 0) {
+    const p = leftPending; leftPending = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { }
+    if (p.moved) { if (handler && handler.box) handler.box(p, e, 'end'); } else if (handler && handler.down) handler.down(p.ev);
+    return;
+  }
   if (e.button === 0 && handler && handler.up) handler.up(e);
 });
 host.addEventListener('pointercancel', e => { if (drag) endDrag(e); leftPending = null; });
@@ -314,6 +319,23 @@ export function pickEdge(x, y, tol = 7) {
     if (s < -Math.max(0.5, (tol * 1.5) / C.scale)) return null;
   }
   return best;
+}
+// 框选模型的边（只算能看见的）：cross＝碰到框就算，否则整条边都在框里
+export function edgesInBox(ax, ay, bx, by, cross) {
+  if (!edgeData || !model.visible) return [];
+  applyCam();
+  const r = host.getBoundingClientRect(), L = edgeData.lines, m = cam.projectionMatrix.clone().multiply(cam.matrixWorldInverse), v = new THREE.Vector3();
+  const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by), out = [];
+  for (let g = 0; g < edgeData.groups.length; g++) {
+    const [start, count] = edgeData.groups[g]; let any = false, all = true;
+    for (let i = start; i < start + count; i++) {
+      v.set(L[i * 3], L[i * 3 + 1], L[i * 3 + 2]).applyMatrix4(m);
+      const sx = (v.x + 1) / 2 * W + r.left, sy = (1 - v.y) / 2 * H + r.top, inn = sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1;
+      any = any || inn; all = all && inn;
+    }
+    if (cross ? any : all) out.push(g);
+  }
+  return out;
 }
 // 取一条边上的一个点（用中间的顶点，避开两端——端点是几条边共用的，按点找边会找错）
 export function edgePoint(g) {

@@ -111,7 +111,7 @@ for (const b of $$('[data-tool]')) b.addEventListener('click', () => {
   }
   setTool(b.dataset.tool);
 });
-function editSketch(sid) { if (S.mode !== '3d') setMode('3d'); closeProps(); setPick(null); S.active = sid; S.selSketch = sid; setTool('select'); emit('sketch'); renderTree(); view.lookAtSketch(sid); }
+function editSketch(sid, opt = {}) { if (S.mode !== '3d') setMode('3d'); closeProps(); setPick(null); S.active = sid; S.selSketch = sid; setTool('select'); emit('sketch'); renderTree(); if (!opt.keepView) view.lookAtSketch(sid); }
 setOnEditSketch(editSketch);
 $('#tool-construction').addEventListener('click', () => {
   if (!S.active || !T.sel.size) return;

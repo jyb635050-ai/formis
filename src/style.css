@@ -199,3 +199,6 @@ body.msheet canvas.gl, body.msheet .labels { visibility: hidden; }
 #sheetview g.dimg .hitl { stroke: transparent !important; stroke-width: 1.6 !important; stroke-dasharray: none !important; pointer-events: stroke; }
 #status .selinfo { color: #ff6a00; }
 body.m3d #status { pointer-events: none; }
+.overlay .box.cross { fill: rgba(48, 164, 108, .12); stroke: #30a46c; stroke-dasharray: 5 4; }
+.overlay .box:not(.cross) { stroke-dasharray: none; }
+.bar.h .cap { white-space: nowrap; }

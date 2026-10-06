@@ -276,10 +276,7 @@ function sketchMove(e) {
     if (!e.altKey) { const k = view.pxPerMm(), g = k >= 2 ? 1 : k >= 0.5 ? 5 : 10; uv = [Math.round(uv[0] / g) * g, Math.round(uv[1] / g) * g]; }
     T.st.moved = true; solveSketch(s, { ref: T.st.drag, uv }, T.st.relax); updateRelaxed(s, T.st.relax); view.drawSketches(); return;
   }
-  if (T.st.box) {
-    ov.innerHTML = ''; const [ax, ay] = hostXY(...T.st.box), [bx, by] = hostXY(x, y);
-    svgEl('rect', { x: Math.min(ax, bx), y: Math.min(ay, by), width: Math.abs(bx - ax), height: Math.abs(by - ay), class: 'box' }); return;
-  }
+  if (T.st.box) { drawBox(T.st.box[0], T.st.box[1], x, y); return; }
   T.st.lastXY = [x, y];
   let p = null, prev = [], info = [];
   if (['line', 'rect', 'circle', 'arc'].includes(T.tool)) {
@@ -306,15 +303,7 @@ function sketchUp(e) {
   if (T.st.box) {
     const [ax, ay] = T.st.box, bx = e.clientX, by = e.clientY; const add = T.st.add; T.st = {}; ov.innerHTML = '';
     if (!add) T.sel.clear();
-    if (Math.hypot(bx - ax, by - ay) > 4) {
-      const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by);
-      const inside = uv => { const q = sp(s.id, uv); return q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1; };
-      for (const en of s.ents) {
-        const pts = en.type === 'line' ? [en.a, en.b] : en.type === 'circle' ? [[en.c[0] - en.r, en.c[1]], [en.c[0] + en.r, en.c[1]], [en.c[0], en.c[1] - en.r], [en.c[0], en.c[1] + en.r]] : en.type === 'arc' ? [arcPoints(en).a, arcPoints(en).b, arcPoints(en).m] : [en.at];
-        if (pts.every(inside)) T.sel.add(en.id);
-      }
-      for (const d of s.dims) if (inside(dimLabel(s, d))) T.sel.add(d.id);
-    }
+    if (Math.hypot(bx - ax, by - ay) > 4) for (const id of boxPick(s, ax, ay, bx, by)) T.sel.add(id);
     syncSel(); return;
   }
   // 按住拖画：松手处当作第二下
@@ -324,6 +313,27 @@ function sketchUp(e) {
     if (p) { commitAt(s, p); if (T.tool === 'line') T.st = {}; }
   }
   if (T.st) T.st.down = null;
+}
+// 框选判定：从左往右拖＝窗口选（整个在框里才选），从右往左拖＝交叉选（碰到框就选）
+function samplesOf(en) {
+  const P = [];
+  if (en.type === 'line') for (let i = 0; i <= 40; i++) P.push([en.a[0] + (en.b[0] - en.a[0]) * i / 40, en.a[1] + (en.b[1] - en.a[1]) * i / 40]);
+  else if (en.type === 'circle') for (let i = 0; i < 48; i++) P.push([en.c[0] + en.r * Math.cos(i / 48 * 2 * Math.PI), en.c[1] + en.r * Math.sin(i / 48 * 2 * Math.PI)]);
+  else if (en.type === 'arc') { const ap = arcPoints(en); for (let i = 0; i <= 32; i++) { const a = (ap.a0 + (ap.a1 - ap.a0) * i / 32) * Math.PI / 180; P.push([en.c[0] + en.r * Math.cos(a), en.c[1] + en.r * Math.sin(a)]); } }
+  else if (en.type === 'text') P.push(en.at);
+  return P;
+}
+function boxPick(s, ax, ay, bx, by) {
+  const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by), cross = bx < ax;
+  const inside = uv => { const q = sp(s.id, uv); return q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1; };
+  const ids = new Set();
+  for (const en of s.ents) { const P = samplesOf(en); if (P.length && (cross ? P.some(inside) : P.every(inside))) ids.add(en.id); }
+  for (const d of s.dims) if (inside(dimLabel(s, d))) ids.add(d.id);
+  return ids;
+}
+function drawBox(ax, ay, x, y) {
+  ov.innerHTML = ''; const [hx, hy] = hostXY(ax, ay), [qx, qy] = hostXY(x, y);
+  svgEl('rect', { x: Math.min(hx, qx), y: Math.min(hy, qy), width: Math.abs(qx - hx), height: Math.abs(qy - hy), class: 'box' + (x < ax ? ' cross' : '') });
 }
 function syncSel() {
   view.setSketchState({ sel: new Set(T.sel) });
@@ -544,7 +554,27 @@ let onEditSketch = () => { };
 export const setOnEditSketch = f => { onEditSketch = f; };
 
 let rafPending = null;
+function box3d(st, e, phase) {
+  if (S.mode !== '3d' || S.active) return;
+  if (phase === 'move') { drawBox(st.x, st.y, e.clientX, e.clientY); return; }
+  ov.innerHTML = '';
+  const ax = st.x, ay = st.y, bx = e.clientX, by = e.clientY, add = e.ctrlKey || e.shiftKey;
+  if (!T.pick || T.pick.kind === 'edges') {
+    if (!T.pick) {
+      let best = null;
+      const used = new Set(S.doc.features.map(f => f.sketch));
+      for (const sid of view.shownSketches()) { const sk = sketchById(sid); if (!sk) continue; const ids = boxPick(sk, ax, ay, bx, by); if (ids.size && (!best || ids.size > best.ids.size)) best = { sid, ids, used: used.has(sid) }; }
+      if (best) { onEditSketch(best.sid, { keepView: true }); T.sel = best.ids; syncSel(); toast(t('boxSketch').replace('{n}', best.ids.size)); return; }
+    }
+    // 模型的边：从左往右＝整条边在框里，从右往左＝碰到就算
+    const groups = view.edgesInBox(ax, ay, bx, by, bx < ax);
+    const list = T.pick ? T.pick.sel : (add ? T.sel3d : (T.sel3d = []));
+    for (const g of groups) if (!list.some(x => x.kind === 'edge' && x.group === g)) { const pt = view.edgePoint(g); if (pt) list.push({ kind: 'edge', group: g, point: pt }); }
+    view.setSelection(list); emit(T.pick ? 'pick' : 'sel3d');
+  }
+}
 view.setHandler({
+  box: box3d,
   down(e) { if (S.mode === 'sheet') return; if (S.active) sketchDown(e); else solidDown(e); },
   move(e) {
     if (S.mode === 'sheet') return;

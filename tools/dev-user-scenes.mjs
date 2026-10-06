@@ -267,3 +267,24 @@ export async function copydrag({ p, click, drag, tap, shot, sleep }) {
   const sk = await p.evaluate(() => { const k = __cad.sketch(__cad.active()); return { lines: k.entities.length, dims: k.dims.map(d => Math.round(d.value * 100) / 100), cons: k.constraints.length }; });
   console.log('copydrag', JSON.stringify({ afterDrag, sk }));
 }
+export async function box3d({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => {
+    const C = __cad.cmd; const s = await C.sketch('XY'); [[0, 0], [40, 0], [40, 30], [0, 30]].forEach((q, i, a) => C.line(s, q, a[(i + 1) % 4])); C.finish(s); C.extrude(s, { depth: 20 }); await __cad.idle();
+    const s2 = await C.sketch('XY'); const L = [[60, 0], [90, 0], [90, 20], [60, 20]].map((q, i, a) => C.line(s2, q, a[(i + 1) % 4])); C.dim(s2, 'length', [L[0]], 30); C.circle(s2, [75, 10], 5); C.finish(s2);
+  });
+  await click('view-iso'); await sleep(600); await click('view-fit'); await sleep(700);
+  const P = q => p.evaluate(q => { const r = __cad.project(q); return [r.x, r.y]; }, q);
+  // 1) 从左往右框住草图2 的全部
+  const pts = []; for (const q of [[55, -5, 0], [95, -5, 0], [95, 25, 0], [55, 25, 0]]) pts.push(await P(q));
+  const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+  await drag([Math.min(...xs) - 5, Math.min(...ys) - 30], [Math.max(...xs) + 5, Math.max(...ys) + 5]); await sleep(300); await shot('bx1-boxed');
+  const st1 = await p.evaluate(() => ({ active: __cad.active(), toast: document.querySelector('#toast').textContent }));
+  await p.keyboard.press('Control+c'); await sleep(150);
+  const tgt = await P([75, 50, 0]); await p.mouse.move(tgt[0], tgt[1], { steps: 4 }); await p.keyboard.press('Control+v'); await sleep(500); await shot('bx2-pasted');
+  const n = await p.evaluate(() => __cad.sketch(__cad.active()).entities.length);
+  // 2) 退出草图，框选模型的边（从右往左＝碰到就算）
+  await p.keyboard.press('Escape'); await click('sketch-done'); await sleep(300); await click('view-iso'); await sleep(500); await click('view-fit'); await sleep(600);
+  const c = await P([40, 0, 20]); await drag([c[0] + 30, c[1] + 25], [c[0] - 30, c[1] - 25]); await sleep(300); await shot('bx3-edges');
+  const st3 = await p.evaluate(() => document.querySelector('#status').textContent);
+  console.log(JSON.stringify({ st1, entsAfterPaste: n, st3 }));
+}
