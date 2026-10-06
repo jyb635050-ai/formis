@@ -20,7 +20,7 @@ export function ptOf(sk, ref) {
   return p;
 }
 
-function prims(sk, drag) {
+function prims(sk, drag, skip) {
   const P = [], pt = (id, p) => P.push({ id, type: 'point', x: p[0], y: p[1], fixed: false });
   for (const e of sk.ents) {
     if (e.type === 'line') { pt(e.id + '.a', e.a); pt(e.id + '.b', e.b); P.push({ id: e.id, type: 'line', p1_id: e.id + '.a', p2_id: e.id + '.b' }); }
@@ -63,6 +63,7 @@ function prims(sk, drag) {
     }
   }
   for (const d of sk.dims) {
+    if (skip && skip.has(d.id)) continue; // 拖动时临时放开的尺寸
     const [p, q] = d.refs, v = d.value, kp = kindOf(sk, p);
     switch (d.type) {
       case 'length': P.push({ id: d.id, type: 'p2p_distance', p1_id: p + '.a', p2_id: p + '.b', distance: v }); break;
@@ -85,11 +86,11 @@ function prims(sk, drag) {
 }
 
 // 解草图；成功则就地改坐标、写 dof/status，返回 true；冲突/不收敛返回 false 且不改坐标
-export function solveSketch(sk, drag) {
+export function solveSketch(sk, drag, skip) {
   if (!GM) throw new Error('求解器还没加载好');
   const g = new GcsWrapper(new GM.GcsSystem());
   try {
-    g.push_primitives_and_params(prims(sk, drag));
+    g.push_primitives_and_params(prims(sk, drag, skip));
     const st = g.solve();
     const conflict = g.has_gcs_conflicting_constraints() || g.has_gcs_redundant_constraints();
     if (conflict || (st !== 0 && !drag)) return false;

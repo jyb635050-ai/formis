@@ -1,6 +1,7 @@
 // 鼠标工具：草图里画线/矩形/圆/圆弧（点两下或按住拖都行）、对象捕捉、水平竖直参考线、光标旁实时尺寸、键盘输数、
 // 智能尺寸、选择（点选/框选/拖点）；三维里悬停高亮、点选草图、选平面、选边、选面
 import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf, moveDimLabel, dimBase, measureDim } from './doc.js';
+import { kindOf } from './solver.js';
 import { solveSketch } from './solver.js';
 import { arcPoints } from './kernel/build.js';
 import * as view from './view.js';
@@ -252,8 +253,7 @@ function sketchDown(e) {
   if (T.tool === 'select') {
     const hp = hitPoint(s, x, y);
     if (hp) {
-      if (lockedAt(s, hp.uv)) { toast(t('dimLocked')); return; }
-      T.st = { drag: hp.ref, moved: false }; beginDrag(); return;
+      T.st = { drag: hp.ref, moved: false, relax: relaxedDims(s, hp.ref) }; beginDrag(); return;
     }
     const he = hitEnt(s, x, y);
     if (he) { if (!e.shiftKey && !e.ctrlKey) T.sel.clear(); T.sel.has(he.id) ? T.sel.delete(he.id) : T.sel.add(he.id); syncSel(); return; }
@@ -269,9 +269,12 @@ function sketchDown(e) {
 }
 function sketchMove(e) {
   const s = active(); const x = e.clientX, y = e.clientY;
+  { const u = view.screenToPlane(s.plane, x, y); if (u) T.lastUV = u; }
   if (T.st.drag) {
-    const uv = view.screenToPlane(s.plane, x, y); if (!uv) return;
-    T.st.moved = true; solveSketch(s, { ref: T.st.drag, uv }); view.drawSketches(); return;
+    let uv = view.screenToPlane(s.plane, x, y); if (!uv) return;
+    // 拖动按网格吸附（尺寸拖出来是整数）；按住 Alt 自由拖
+    if (!e.altKey) { const k = view.pxPerMm(), g = k >= 2 ? 1 : k >= 0.5 ? 5 : 10; uv = [Math.round(uv[0] / g) * g, Math.round(uv[1] / g) * g]; }
+    T.st.moved = true; solveSketch(s, { ref: T.st.drag, uv }, T.st.relax); updateRelaxed(s, T.st.relax); view.drawSketches(); return;
   }
   if (T.st.box) {
     ov.innerHTML = ''; const [ax, ay] = hostXY(...T.st.box), [bx, by] = hostXY(x, y);
@@ -299,7 +302,7 @@ function sketchMove(e) {
 }
 function sketchUp(e) {
   const s = active();
-  if (T.st.drag) { solveSketch(s); T.st = {}; endDrag(); view.drawSketches(); return; }
+  if (T.st.drag) { updateRelaxed(s, T.st.relax); solveSketch(s); T.st = {}; endDrag(); view.drawSketches(); return; }
   if (T.st.box) {
     const [ax, ay] = T.st.box, bx = e.clientX, by = e.clientY; const add = T.st.add; T.st = {}; ov.innerHTML = '';
     if (!add) T.sel.clear();
@@ -328,7 +331,73 @@ function syncSel() {
   emit('sel');
 }
 
-// 被尺寸标注过的图形"定死"：它的端点/圆心不能直接拖（改数值请双击尺寸数字）
+// 拖一个点时，和它相连的线的长度、以它为端点的距离/角度尺寸临时放开，拖完把新数值写回去（尺寸跟着图形变）；
+// 直径/半径不放开（拖圆心只是挪位置）。其余尺寸照样约束着
+function relaxedDims(s, ref) {
+  let p0; try { p0 = ptOf(s, ref); } catch (e) { return new Set(); }
+  const pts = new Set(), ents = new Set();
+  for (const e of s.ents) {
+    const ks = e.type === 'line' ? ['a', 'b'] : e.type === 'arc' ? ['a', 'b', 'c'] : e.type === 'circle' ? ['c'] : [];
+    for (const k of ks) { let q; try { q = ptOf(s, e.id + '.' + k); } catch (x) { continue; } if (Math.hypot(q[0] - p0[0], q[1] - p0[1]) < 1e-6) { pts.add(e.id + '.' + k); if (k !== 'c') ents.add(e.id); } }
+  }
+  const out = new Set();
+  for (const d of s.dims) { if (d.type === 'radius' || d.type === 'diameter') continue; if (d.refs.some(r => pts.has(r) || ents.has(r))) out.add(d.id); }
+  return out;
+}
+function updateRelaxed(s, relax) {
+  if (!relax || !relax.size) return;
+  for (const d of s.dims) {
+    if (!relax.has(d.id)) continue;
+    try {
+      const v = measureDim(s, d.type, d.refs); if (!(v > 1e-6)) continue;
+      d.value = v;
+      if (d.type === 'hdist' || d.type === 'vdist') { const k = d.type === 'hdist' ? 0 : 1; d.sign = ptOf(s, d.refs[1])[k] >= ptOf(s, d.refs[0])[k] ? 1 : -1; }
+      if (d.type === 'angle') { const [l1, l2] = d.refs.map(r => s.ents.find(e => e.id === r)); const a1 = Math.atan2(l1.b[1] - l1.a[1], l1.b[0] - l1.a[0]), a2 = Math.atan2(l2.b[1] - l2.a[1], l2.b[0] - l2.a[0]); d.sign = Math.sin(a2 - a1) >= 0 ? 1 : -1; }
+    } catch (e) { }
+  }
+}
+
+// ───── 复制粘贴（草图里）：框选后 Ctrl+C，鼠标移到新位置 Ctrl+V ─────
+let clip = null;
+function copySel() {
+  const s = active(); if (!s) return false;
+  const ids = new Set([...T.sel].filter(id => s.ents.some(e => e.id === id)));
+  if (!ids.size) { toast(t('copyNone')); return false; }
+  const inSet = r => ids.has(r.split('.')[0]);
+  const ents = s.ents.filter(e => ids.has(e.id)).map(e => JSON.parse(JSON.stringify(e)));
+  const cons = s.cons.filter(c => c.type !== 'fix' && c.refs.every(inSet)).map(c => JSON.parse(JSON.stringify(c)));
+  const dims = s.dims.filter(d => d.refs.every(inSet)).map(d => JSON.parse(JSON.stringify(d)));
+  const xs = [], ys = [];
+  for (const e of ents) { const P = e.type === 'line' ? [e.a, e.b] : e.type === 'text' ? [e.at] : [[e.c[0] - e.r, e.c[1] - e.r], [e.c[0] + e.r, e.c[1] + e.r]]; for (const p of P) { xs.push(p[0]); ys.push(p[1]); } }
+  clip = { ents, cons, dims, center: [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2], n: 0 };
+  toast(t('copied').replace('{n}', ents.length));
+  return true;
+}
+function pasteClip() {
+  const s = active(); if (!s || !clip) return;
+  clip.n++;
+  const tgt = T.lastUV || [clip.center[0] + 10 * clip.n, clip.center[1] - 10 * clip.n];
+  const d = [tgt[0] - clip.center[0], tgt[1] - clip.center[1]], mv = p => [p[0] + d[0], p[1] + d[1]];
+  const map = {};
+  try {
+    txn(() => {
+      for (const e of clip.ents) {
+        let id;
+        if (e.type === 'line') id = ops.line(s.id, mv(e.a), mv(e.b));
+        else if (e.type === 'circle') id = ops.circle(s.id, mv(e.c), e.r);
+        else if (e.type === 'arc') id = ops.arc(s.id, mv(e.c), e.r, e.a0, e.a1);
+        else if (e.type === 'text') id = ops.text(s.id, mv(e.at), e.text, e.h);
+        if (id) { map[e.id] = id; if (e.construction) ops.construction(id, true); }
+      }
+      const R = r => { const [id, k] = r.split('.'); return map[id] + (k ? '.' + k : ''); };
+      for (const c of clip.cons) tryC(() => ops.constrain(s.id, c.type, ...c.refs.map(R)));
+      for (const dd of clip.dims) tryC(() => ops.dim(s.id, dd.type, dd.refs.map(R), dd.value, dd.off));
+    });
+  } catch (err) { toast(err.message, true); return; }
+  T.sel = new Set(Object.values(map)); syncSel();
+  toast(t('pasted').replace('{n}', Object.keys(map).length));
+}
+// 旧的"标了尺寸就锁死"已取消（2026-10-06 用户要求：线照样能拖，尺寸跟着变）
 function dimmedPoints(s) {
   const pts = [];
   for (const d of s.dims) for (const r of d.refs) {
@@ -549,6 +618,12 @@ host.addEventListener('click', e => {
 window.addEventListener('keydown', e => {
   const tag = (e.target && e.target.tagName) || '';
   if (/INPUT|TEXTAREA|SELECT/.test(tag)) return;
+  if ((e.ctrlKey || e.metaKey) && S.active && !e.shiftKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'c') { if (copySel()) e.preventDefault(); return; }
+    if (k === 'v') { if (clip) { e.preventDefault(); pasteClip(); } return; }
+    if (k === 'a') { e.preventDefault(); const s = active(); T.sel = new Set(s.ents.map(x => x.id)); syncSel(); return; }
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (S.active && T.st.start && /^[0-9.]$/.test(e.key)) { if (openNum(e.key)) e.preventDefault(); return; }
   if (e.key === 'Escape') {

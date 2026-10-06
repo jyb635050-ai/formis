@@ -130,6 +130,12 @@ export function viewTo(name, instant) {
   if (instant) { C.quat.copy(q); if (to.target) { C.target.set(...to.target); C.scale = to.scale; } dirty = true; return; }
   animate(to);
 }
+// 正视于：相机转到正对给定平面（法向朝向屏幕外），屏幕中心和缩放不变
+export function lookNormal(normal, up) {
+  const n = new THREE.Vector3(...normal).normalize();
+  let u = up ? new THREE.Vector3(...up) : (Math.abs(n.z) > 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
+  animate({ quat: quatFromDir(n.clone().negate(), u) }, 300);
+}
 export function fitAll(instant) {
   const pts = modelPoints() || sketchPoints(); if (!pts) return;
   const to = fitBox(pts, C.quat);
@@ -162,11 +168,11 @@ host.addEventListener('contextmenu', e => e.preventDefault());
 // 拦住 Chrome 的"中键自动滚动"，否则中键拖动被浏览器吃掉
 host.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
 host.addEventListener('auxclick', e => { if (e.button === 1) { e.preventDefault(); if (e.detail === 2 && S.mode === '3d') fitAll(); } });
+// 鼠标（2026-10-06 按用户要求）：左键＝选择；中键拖＝平移（Shift+中键＝缩放）；右键拖＝旋转翻转（二维制图里没有旋转，右键也是平移）
 function navMode(b, e) {
-  const flat = S.mode === '2d' || (!!S.active && b === 2);
-  if (b === 1) return e.ctrlKey ? 'pan' : e.shiftKey ? 'zoom' : (S.mode === '2d' ? 'pan' : 'orbit');
-  if (b === 2) return e.shiftKey || flat ? 'pan' : 'orbit';
-  return e.shiftKey ? 'pan' : 'orbit';
+  if (b === 1) return e.shiftKey ? 'zoom' : 'pan';
+  if (b === 2) return S.mode === '2d' || e.shiftKey ? 'pan' : 'orbit';
+  return 'pan';
 }
 function pivot() {
   const b = S.built && S.built.measure;
@@ -211,18 +217,14 @@ host.addEventListener('pointermove', e => {
     navMove(dx, dy); return;
   }
   if (leftPending && (e.buttons & 1)) {
-    if (Math.hypot(e.clientX - leftPending.x, e.clientY - leftPending.y) > 4) {
-      const p = leftPending; leftPending = null;
-      startDrag(0, Object.assign({}, { clientX: p.x, clientY: p.y, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, pointerId: e.pointerId }));
-      navMove(e.clientX - p.x, e.clientY - p.y); drag.x = e.clientX; drag.y = e.clientY;
-    }
+    if (Math.hypot(e.clientX - leftPending.x, e.clientY - leftPending.y) > 4) leftPending.moved = true; // 拖动了就不算点击（左键只管选择）
     return;
   }
   if (handler && handler.move) handler.move(e);
 });
 host.addEventListener('pointerup', e => {
   if (drag && e.button === drag.b) { endDrag(e); return; }
-  if (leftPending && e.button === 0) { const p = leftPending; leftPending = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } if (handler && handler.down) handler.down(p.ev); return; }
+  if (leftPending && e.button === 0) { const p = leftPending; leftPending = null; try { host.releasePointerCapture(e.pointerId); } catch (x) { } if (!p.moved && handler && handler.down) handler.down(p.ev); return; }
   if (e.button === 0 && handler && handler.up) handler.up(e);
 });
 host.addEventListener('pointercancel', e => { if (drag) endDrag(e); leftPending = null; });

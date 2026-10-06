@@ -234,3 +234,36 @@ export async function preselect({ p, click, drag, tap, shot, sleep }) {
   const sk = await p.evaluate(() => { const a = __cad.active(); return a ? __cad.sketch(a).plane.normal : null; });
   console.log(JSON.stringify({ st1, st2, hint, v0, v1, err, sketchNormal: sk }));
 }
+export async function mouse6({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => { const C = __cad.cmd; const s = await C.sketch('XY'); [[0, 0], [40, 0], [40, 30], [0, 30]].forEach((q, i, a) => C.line(s, q, a[(i + 1) % 4])); C.finish(s); C.extrude(s, { depth: 20 }); await __cad.idle(); });
+  await click('view-iso'); await sleep(600); await click('view-fit'); await sleep(700);
+  const P = q => p.evaluate(q => { const r = __cad.project(q); return [Math.round(r.x), Math.round(r.y)]; }, q);
+  const dragBtn = async (button, a, b) => { await p.mouse.move(a[0], a[1]); await p.mouse.down({ button }); for (let i = 1; i <= 12; i++) { await p.mouse.move(a[0] + (b[0] - a[0]) * i / 12, a[1] + (b[1] - a[1]) * i / 12); await sleep(16); } await p.mouse.up({ button }); await sleep(250); };
+  const vec = async () => { const a = await P([0, 0, 0]), b = await P([0, 0, 20]); return [a, [b[0] - a[0], b[1] - a[1]]]; };
+  const r = { start: await vec() };
+  await dragBtn('middle', [700, 450], [800, 480]); r.middlePan = await vec();
+  await dragBtn('right', [700, 450], [800, 400]); r.rightRotate = await vec();
+  await dragBtn('left', [250, 750], [400, 650]); r.leftDragNothing = await vec();
+  // 左键点顶面 → 正视于
+  let q = await p.evaluate(() => __cad.project([20, 15, 20])); await tap(q.x, q.y); await sleep(200);
+  await p.click('#view-normal'); await sleep(700);
+  r.afterNormal = await vec();   // 正视顶面：Z 方向的线应缩成一个点
+  console.log('mouse6', JSON.stringify(r));
+}
+export async function copydrag({ p, click, drag, tap, shot, sleep }) {
+  await click('mode-2d'); await sleep(700);
+  await p.evaluate(() => { const C = __cad.cmd, s = __cad.active(); const L = [[0, 0], [40, 0], [40, 20], [0, 20]].map((q, i, a) => C.line(s, q, a[(i + 1) % 4])); for (let i = 0; i < 4; i++) C.constrain(s, 'coincident', L[i] + '.b', L[(i + 1) % 4] + '.a'); C.constrain(s, 'horizontal', L[0]); C.constrain(s, 'horizontal', L[2]); C.constrain(s, 'vertical', L[1]); C.constrain(s, 'vertical', L[3]); C.dim(s, 'length', [L[0]], 40); C.dim(s, 'length', [L[1]], 20); });
+  const S = uv => p.evaluate(uv => { const r = __cad.toScreen(__cad.active(), uv); return [r.x, r.y]; }, uv);
+  await click('tool-select');
+  // 拖右下角往右：底边变长，底边尺寸跟着变
+  let a = await S([40, 0]); await drag(a, [a[0] + 70, a[1]]); await sleep(300);
+  const afterDrag = await p.evaluate(() => __cad.sketch(__cad.active()).dims.map(d => [d.type, Math.round(d.value * 100) / 100]));
+  await shot('c1-dragged');
+  // 框选全部 → Ctrl+C → 鼠标移到右边 → Ctrl+V
+  const b1 = await S([-5, -6]), b2 = await S([60, 26]); await drag(b1, b2); await sleep(200);
+  await p.keyboard.press('Control+c'); await sleep(200);
+  const tgt = await S([30, -30]); await p.mouse.move(tgt[0], tgt[1], { steps: 5 }); await sleep(200);
+  await p.keyboard.press('Control+v'); await sleep(500); await shot('c2-pasted');
+  const sk = await p.evaluate(() => { const k = __cad.sketch(__cad.active()); return { lines: k.entities.length, dims: k.dims.map(d => Math.round(d.value * 100) / 100), cons: k.constraints.length }; });
+  console.log('copydrag', JSON.stringify({ afterDrag, sk }));
+}

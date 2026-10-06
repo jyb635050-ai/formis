@@ -354,6 +354,15 @@ $('#ds-text').addEventListener('change', e => ops.setDimStyle({ text: +e.target.
 $('#ds-show').addEventListener('change', e => { S.showDims = e.target.checked; view.drawSketches(); });
 document.addEventListener('pointerdown', e => { const p = $('#dimstyle'); if (!p.hidden && !p.contains(e.target) && !e.target.closest('#dim-style-btn')) { p.hidden = true; $('#dim-style-btn').classList.remove('on'); } });
 
+// ───── 正视于：选中的平面 → 正在编辑/选中的草图 ─────
+$('#view-normal').addEventListener('click', () => {
+  if (S.mode !== '3d') setMode('3d');
+  const f = T.sel3d && T.sel3d.find(x => x.kind === 'face' && x.planar);
+  if (f && S.built && S.built.faces[f.face]) return view.lookNormal(S.built.faces[f.face].normal);
+  const sid = S.active || S.selSketch, sk = sid && sketchById(sid);
+  if (sk) return view.lookNormal(sk.plane.normal, sk.plane.v);
+  toast(t('normalNeed'), true);
+});
 // ───── 视图按钮 ─────
 for (const b of $$('[data-view]')) b.addEventListener('click', () => { if (S.mode !== '3d') setMode('3d'); const v = b.dataset.view; if (v === 'fit') view.fitAll(); else view.viewTo(v); });
 
