@@ -1,5 +1,5 @@
 // 草图文字的字形轮廓：和几何内核用同一份字体（Noto Sans SC GB2312 子集），屏幕上看到的就是拉伸/切除出来的样子
-// 文字约定：at = 第一个字的基线左端，h = 字号（毫米，等于字体 em 大小）
+// 文字约定：at = 第一个字的基线左端，h = 字号（毫米，等于字体 em 大小），ang = 绕 at 逆时针旋转的角度（度）
 import * as opentype from 'opentype.js';
 
 export const fontUrl = () => new URL('fonts/NotoSansSC-GB2312.ttf', document.baseURI).href;
@@ -35,12 +35,28 @@ export function textOutline(e) {
     if (cache.size > 200) cache.clear();
     cache.set(key, base);
   }
-  const [u, v] = e.at;
-  return { loops: base.loops.map(L => L.map(p => [p[0] + u, p[1] + v])), box: [[base.box[0][0] + u, base.box[0][1] + v], [base.box[1][0] + u, base.box[1][1] + v]] };
+  const X = toSketch(e);
+  return { loops: base.loops.map(L => L.map(X)), box: base.box };
 }
-// 文字所占的矩形（草图坐标）：字体没好时按字数估
-export function textBox(e) {
+// 文字自身坐标（基线为 x 轴）→ 草图坐标
+export function toSketch(e) {
+  const r = ((+e.ang || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r), [u, v] = e.at;
+  return p => [u + p[0] * c - p[1] * s, v + p[0] * s + p[1] * c];
+}
+// 文字所占的矩形（文字自身坐标）：字体没好时按字数估
+function localBox(e) {
   const o = textOutline(e); if (o) return o.box;
   const h = +e.h || 5, n = [...String(e.text)].length;
-  return [[e.at[0], e.at[1] - h * 0.12], [e.at[0] + n * h * 0.9, e.at[1] + h * 0.88]];
+  return [[0, -h * 0.12], [n * h * 0.9, h * 0.88]];
+}
+// 文字框四个角（草图坐标，转过角度的）
+export function textCorners(e) {
+  const [[x0, y0], [x1, y1]] = localBox(e), X = toSketch(e);
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(X);
+}
+// 点到文字框的距离（毫米，框里为 0）
+export function textDist(e, uv) {
+  const r = ((+e.ang || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r), d = [uv[0] - e.at[0], uv[1] - e.at[1]];
+  const q = [d[0] * c + d[1] * s, -d[0] * s + d[1] * c], [[x0, y0], [x1, y1]] = localBox(e);
+  return Math.hypot(Math.max(x0 - q[0], 0, q[0] - x1), Math.max(y0 - q[1], 0, q[1] - y1));
 }

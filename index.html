@@ -116,6 +116,12 @@
     <input id="tx-hr" type="range" min="1" max="100" step="0.5">
     <button class="mini" data-step="1" data-ti="textBigger">A+</button>
     <input id="tx-h" data-testid="text-size" class="num" inputmode="decimal" autocomplete="off"><span>mm</span></div>
+  <div class="row"><span data-i="textAngle"></span>
+    <button class="mini" data-rot="-15" data-ti="textRotCw">↻15°</button>
+    <input id="tx-ar" type="range" min="-180" max="180" step="1">
+    <button class="mini" data-rot="15" data-ti="textRotCcw">↺15°</button>
+    <input id="tx-a" data-testid="text-angle" class="num" inputmode="decimal" autocomplete="off"><span>°</span></div>
+  <div class="row"><span></span><button class="mini" data-rot="0">0°</button><button class="mini" data-rot="90">↺90°</button><button class="mini" data-rot="-90">↻90°</button><button class="mini" data-rot="180">180°</button></div>
   <div class="row end"><small data-i="textTip"></small><button id="tx-del" class="mini" data-i="del"></button><button id="tx-ok" class="primary" data-i="ok"></button></div>
 </div>
 <div id="dimbox" class="glass" hidden><input data-testid="dim-input" inputmode="decimal" autocomplete="off"></div>

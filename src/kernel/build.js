@@ -159,7 +159,8 @@ export function makeKernel(R) {
       const font = R.getFont(); if (!font) throw new Error('字体还没加载好，请稍后重试');
       for (const path of font.getPaths(String(e.text), 0, 0, +e.h || 5)) {
         const loops = []; let cur = null, start = null, last = null;
-        const P = (x, y) => [x + e.at[0], -y + e.at[1]];
+        const ra = ((+e.ang || 0) * Math.PI) / 180, rc = Math.cos(ra), rs = Math.sin(ra);
+        const P = (x, y) => [e.at[0] + x * rc + y * rs, e.at[1] + x * rs - y * rc]; // 字形 (x, −y) 绕基线起点转 ang 度
         const same = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-7;
         const close = () => { if (cur && last && !same(last, start)) cur.push({ k: 'L', p: [last, start] }); if (cur && cur.length) loops.push(cur); cur = null; };
         for (const c of path.commands) {

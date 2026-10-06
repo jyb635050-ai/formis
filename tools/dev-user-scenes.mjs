@@ -404,3 +404,28 @@ export async function facetext2({ p, click, drag, tap, shot, sleep }) {
   // 撤销一步：回到拉伸前
   console.log(JSON.stringify({ sid, h0, h1, t0: [t0.at.map(Math.round), t0.h, t0.text], t1: t1.at.map(x => +x.toFixed(1)), reopened, t2: [t2.text, t2.h], feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])), m: await p.evaluate(() => __cad.measure()) }));
 }
+// 文字旋转：面板按钮转 15°×2、输入 45°；转过的文字照样能双击改；刻字
+export async function textrot({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => { const c = __cad.cmd; const sid = await c.sketch('XY'); const P = [[0, 0], [80, 0], [80, 80], [0, 80]]; for (let i = 0; i < 4; i++) c.line(sid, P[i], P[(i + 1) % 4]); c.finish(sid); c.extrude(sid, { depth: 10 }); await __cad.idle(); });
+  await click('view-iso'); await sleep(900);
+  let q = await p.evaluate(() => __cad.project([40, 40, 10])); await tap(q.x, q.y); await sleep(300);
+  await click('tool-text'); await sleep(900);
+  q = await p.evaluate(() => __cad.toScreen(__cad.active(), [-20, -15])); await tap(q.x, q.y); await sleep(300);
+  await p.fill('#tx-text', '形制 6203'); await p.fill('#tx-h', '8'); await p.dispatchEvent('#tx-h', 'input');
+  await p.click('#textbox [data-rot="15"]'); await p.click('#textbox [data-rot="15"]'); await sleep(100);
+  const a1 = await p.inputValue('#tx-a');
+  await p.fill('#tx-a', '45'); await p.dispatchEvent('#tx-a', 'input'); await sleep(200);
+  await shot('rot-a-panel');
+  await p.keyboard.press('Enter'); await sleep(200);
+  await click('tool-select');
+  const T = async () => (await p.evaluate(() => __cad.sketch(__cad.active()).entities.filter(e => e.type === 'text')))[0];
+  const t0 = await T();
+  // 沿 45° 方向的字中间双击
+  const mid = await p.evaluate(t => { const d = t.h * 2.5, r = Math.PI / 4; return __cad.toScreen(__cad.active(), [t.at[0] + d * Math.cos(r) - t.h * 0.35 * Math.sin(r), t.at[1] + d * Math.sin(r) + t.h * 0.35 * Math.cos(r)]); }, t0);
+  await p.mouse.dblclick(mid.x, mid.y); await sleep(300);
+  const reopened = await p.evaluate(() => !document.querySelector('#textbox').hidden), aShown = await p.inputValue('#tx-a');
+  await p.keyboard.press('Escape'); await sleep(100);
+  await click('feat-cut'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '1'); await sleep(2500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(800);
+  await click('view-top'); await sleep(900); await shot('rot-b-cut');
+  console.log(JSON.stringify({ a1, ang: t0.ang, reopened, aShown, feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])), vol: (await p.evaluate(() => __cad.measure())).volume }));
+}

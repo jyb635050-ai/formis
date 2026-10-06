@@ -7,7 +7,7 @@ import { arcPoints } from './kernel/build.js';
 import * as view from './view.js';
 import { t } from './i18n.js';
 import { fmt } from './util.js';
-import { textBox } from './font.js';
+import { textDist, textCorners } from './font.js';
 
 export const T = { tool: 'select', st: {}, pick: null, sel: new Set(), pendingTool: null };
 let toast = () => { };
@@ -156,8 +156,7 @@ export function hitEnt(s, x, y, tol = 7) {
   for (const e of s.ents) {
     if (e.type === 'text') {
       // 文字：点在字框里（含边上几像素）就算点中
-      const [[x0, y0], [x1, y1]] = textBox(e), dx = Math.max(x0 - uv[0], 0, uv[0] - x1), dy = Math.max(y0 - uv[1], 0, uv[1] - y1);
-      const px = Math.hypot(dx, dy) * k; if (px <= tol && (!best || px < best.px)) best = { id: e.id, ent: e, px };
+      const px = textDist(e, uv) * k; if (px <= tol && (!best || px < best.px)) best = { id: e.id, ent: e, px };
       continue;
     }
     const px = D(nearestOn(e, uv), uv) * k;
@@ -355,7 +354,7 @@ function samplesOf(en) {
   if (en.type === 'line') for (let i = 0; i <= 40; i++) P.push([en.a[0] + (en.b[0] - en.a[0]) * i / 40, en.a[1] + (en.b[1] - en.a[1]) * i / 40]);
   else if (en.type === 'circle') for (let i = 0; i < 48; i++) P.push([en.c[0] + en.r * Math.cos(i / 48 * 2 * Math.PI), en.c[1] + en.r * Math.sin(i / 48 * 2 * Math.PI)]);
   else if (en.type === 'arc') { const ap = arcPoints(en); for (let i = 0; i <= 32; i++) { const a = (ap.a0 + (ap.a1 - ap.a0) * i / 32) * Math.PI / 180; P.push([en.c[0] + en.r * Math.cos(a), en.c[1] + en.r * Math.sin(a)]); } }
-  else if (en.type === 'text') { const [[x0, y0], [x1, y1]] = textBox(en); P.push([x0, y0], [x1, y0], [x1, y1], [x0, y1]); }
+  else if (en.type === 'text') P.push(...textCorners(en));
   return P;
 }
 function boxPick(s, ax, ay, bx, by) {
@@ -431,7 +430,7 @@ function pasteClip() {
         if (e.type === 'line') id = ops.line(s.id, mv(e.a), mv(e.b));
         else if (e.type === 'circle') id = ops.circle(s.id, mv(e.c), e.r);
         else if (e.type === 'arc') id = ops.arc(s.id, mv(e.c), e.r, e.a0, e.a1);
-        else if (e.type === 'text') id = ops.text(s.id, mv(e.at), e.text, e.h);
+        else if (e.type === 'text') { id = ops.text(s.id, mv(e.at), e.text, e.h); if (e.ang) ops.setText(id, { ang: e.ang }, true); }
         if (id) { map[e.id] = id; if (e.construction) ops.construction(id, true); }
       }
       const R = r => { const [id, k] = r.split('.'); return map[id] + (k ? '.' + k : ''); };
@@ -710,7 +709,9 @@ window.addEventListener('keydown', e => {
 
 // ───── 文字：点一下放文字，弹出小面板改内容和字号（实时预览）；双击已有文字再改 ─────
 const tbox = document.getElementById('textbox'), tIn = document.getElementById('tx-text'), hIn = document.getElementById('tx-h'), hRange = document.getElementById('tx-hr');
-let tedit = null; // { id, orig:{text,h}, isNew }
+const aIn = document.getElementById('tx-a'), aRange = document.getElementById('tx-ar');
+let tedit = null; // { id, orig:{text,h,ang}, isNew }
+const normAng = a => { a = (+a || 0) % 360; if (a > 180) a -= 360; if (a <= -180) a += 360; return Math.round(a * 1000) / 1000; };
 const textEnt = id => { const s = active(); return s && s.ents.find(e => e.id === id); };
 function placeText(s, uv) {
   let id; try { id = ops.text(s.id, uv, t('textDefault'), T.textH || defaultTextH()); } catch (err) { toast(err.message, true); return; }
@@ -721,25 +722,26 @@ function defaultTextH() { const mm = 40 / Math.max(1e-6, view.pxPerMm()); const 
 export function openTextEditor(id, isNew) {
   const s = active(), e = textEnt(id); if (!s || !e) return;
   if (tedit) commitText();
-  tedit = { id, isNew, orig: { text: e.text, h: e.h } };
+  tedit = { id, isNew, orig: { text: e.text, h: e.h, ang: e.ang || 0 } };
   T.sel = new Set([id]); syncSel();
   const p = view.toScreen(s.id, [e.at[0], e.at[1] - e.h * 0.4]);
   tbox.style.left = Math.min(innerWidth - 320, Math.max(10, p.x)) + 'px'; tbox.style.top = Math.min(innerHeight - 150, Math.max(70, p.y + 12)) + 'px'; tbox.hidden = false;
-  tIn.value = e.text; hIn.value = fmt(e.h); hRange.value = Math.min(100, e.h);
+  tIn.value = e.text; hIn.value = fmt(e.h); hRange.value = Math.min(100, e.h); aIn.value = fmt(e.ang || 0); aRange.value = e.ang || 0;
   tIn.focus(); tIn.select();
 }
 function liveText() {
   const e = tedit && textEnt(tedit.id); if (!e) return;
   e.text = tIn.value; const h = parseFloat(hIn.value); if (h > 0) e.h = h;
+  const a = parseFloat(aIn.value); if (isFinite(a)) e.ang = normAng(a);
   view.drawSketches();
 }
 export function commitText() {
   if (!tedit) return; const ed = tedit; tedit = null; tbox.hidden = true;
   const e = textEnt(ed.id); if (!e) return;
-  const nv = { text: e.text, h: e.h }; Object.assign(e, ed.orig);
+  const nv = { text: e.text, h: e.h, ang: e.ang || 0 }; Object.assign(e, ed.orig);
   try {
     if (!nv.text.trim()) { ops.del(ed.id); T.sel.delete(ed.id); syncSel(); return; }
-    if (nv.text !== ed.orig.text || nv.h !== ed.orig.h) ops.setText(ed.id, nv, ed.isNew);
+    if (nv.text !== ed.orig.text || nv.h !== ed.orig.h || nv.ang !== ed.orig.ang) ops.setText(ed.id, nv, ed.isNew);
     T.textH = nv.h;
   } catch (err) { toast(err.message, true); }
   view.drawSketches(); emit('sketch');
@@ -753,6 +755,12 @@ function cancelText() {
 tIn.addEventListener('input', liveText);
 hIn.addEventListener('input', () => { const h = parseFloat(hIn.value); if (h > 0) hRange.value = Math.min(100, h); liveText(); });
 hRange.addEventListener('input', () => { hIn.value = hRange.value; liveText(); });
+aIn.addEventListener('input', () => { const a = parseFloat(aIn.value); if (isFinite(a)) aRange.value = normAng(a); liveText(); });
+aRange.addEventListener('input', () => { aIn.value = aRange.value; liveText(); });
+for (const b of tbox.querySelectorAll('[data-rot]')) b.addEventListener('click', () => {
+  const v = b.dataset.rot, a = parseFloat(aIn.value) || 0, na = v === '0' ? 0 : normAng(a + +v);
+  aIn.value = fmt(na); aRange.value = na; liveText();
+});
 for (const b of tbox.querySelectorAll('[data-step]')) b.addEventListener('click', () => {
   const h = parseFloat(hIn.value) || 5, k = +b.dataset.step; const nh = Math.max(0.5, Math.round((k > 0 ? h * 1.25 : h / 1.25) * 10) / 10);
   hIn.value = fmt(nh); hRange.value = Math.min(100, nh); liveText();

@@ -35,3 +35,11 @@ for (const type of ['cut', 'extrude']) {
   const top = inf.faces.map((f, i) => [i, f]).filter(([i, f]) => f.planar && f.normal[2] === 1);
   console.log('faces', inf.faces.length, 'top faces', top.map(([i, f]) => `#${i} z=${f.d.toFixed(2)} tris=${per.get(i) || 0}`).join(', '));
 }
+// 旋转核对：转 90° 后内核包围盒 = 未转时的框绕 at 转 90°
+{
+  const at = [10, 14], h = 9, txt = 'ABC';
+  const bb = ang => { const r = K.rebuild({ sketches: [{ id: 'S9', plane: PLANES.XY, ents: [{ id: 'T', type: 'text', at, text: txt, h, ang }] }], features: [{ id: 'F', type: 'extrude', sketch: 'S9', params: { depth: 2 } }] }); return K.bboxOf(r.solid).map(p => p.slice(0, 2).map(x => +x.toFixed(2))); };
+  const b0 = bb(0), b90 = bb(90);
+  const exp = [[at[0] - (b0[1][1] - at[1]), at[1] + (b0[0][0] - at[0])], [at[0] - (b0[0][1] - at[1]), at[1] + (b0[1][0] - at[0])]].map(p => p.map(x => +x.toFixed(2)));
+  console.log('rot90 kernel', JSON.stringify(b90), 'expect', JSON.stringify(exp), 'rot30 ok', JSON.stringify(bb(30)));
+}

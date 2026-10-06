@@ -216,3 +216,5 @@ body.m3d #status { pointer-events: none; }
 #textbox #tx-h { width: 46px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--glass2); text-align: right; color: inherit; outline: none; }
 #textbox .mini { padding: 3px 7px; border-radius: 7px; border: 1px solid rgba(127, 127, 127, .35); background: transparent; color: inherit; cursor: pointer; font-weight: 600; }
 #textbox .primary { padding: 4px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; font-weight: 600; }
+#textbox #tx-a { width: 46px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--glass2); text-align: right; color: inherit; outline: none; }
+#textbox .row > span:first-child { width: 28px; flex: none; }

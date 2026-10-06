@@ -19,7 +19,7 @@ export function sketchDrawing(s) {
     if (e.type === 'line') ents.push({ type: 'line', a: e.a, b: e.b, layer, dashed });
     else if (e.type === 'circle') ents.push({ type: 'circle', c: e.c, r: e.r, layer, dashed });
     else if (e.type === 'arc') { const p = arcPoints(e); ents.push({ type: 'arc', c: e.c, r: e.r, a0: norm360(e.a0), a1: norm360(e.a1), layer, dashed, _a: p.a, _b: p.b }); }
-    else if (e.type === 'text') texts.push({ at: e.at, h: e.h, text: e.text, layer: 'TEXT' });
+    else if (e.type === 'text') texts.push({ at: e.at, h: e.h, text: e.text, layer: 'TEXT', rot: e.ang || 0 });
   }
   for (const d of s.dims) {
     const L = dimLabel(s, d);
@@ -122,7 +122,7 @@ export function toDxf(dr, ts = 3.5) {
       w.addAngularLinesDim({ start: P(A[0]), end: P(A[1]) }, { start: P(B[0]), end: P(B[1]) }, P(d.at), o);
     }
   }
-  for (const t of dr.texts) w.addText(P(t.at), t.h, t.text, { layerName: t.layer || 'TEXT' });
+  for (const t of dr.texts) w.addText(P(t.at), t.h, t.text, t.rot ? { layerName: t.layer || 'TEXT', rotation: t.rot } : { layerName: t.layer || 'TEXT' });
   return w.stringify();
 }
 
@@ -168,7 +168,7 @@ export function toSvg(dr, opt) {
     out.push(`<text x="${f(p[0])}" y="${f(p[1])}" font-size="${f(g.h * scale)}" text-anchor="middle" dominant-baseline="central" transform="rotate(${f(-g.rot)} ${f(p[0])} ${f(p[1])})">${esc(g.text)}</text>`);
     out.push('</g>');
   }
-  for (const t of dr.texts) { const p = map(t.at); out.push(`<text x="${f(p[0])}" y="${f(p[1])}" font-size="${f(t.h * scale)}"${t.anchor ? ` text-anchor="${t.anchor}"` : ''}>${esc(t.text)}</text>`); }
+  for (const t of dr.texts) { const p = map(t.at); out.push(`<text x="${f(p[0])}" y="${f(p[1])}" font-size="${f(t.h * scale)}"${t.anchor ? ` text-anchor="${t.anchor}"` : ''}${t.rot ? ` transform="rotate(${f(-t.rot)} ${f(p[0])} ${f(p[1])})"` : ''}>${esc(t.text)}</text>`); }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${f(page[0])}mm" height="${f(page[1])}mm" viewBox="0 0 ${f(page[0])} ${f(page[1])}">` +
     `<style>.vs{stroke:#111;stroke-width:0.35;fill:none}.hd{stroke:#333;stroke-width:0.25;fill:none;stroke-dasharray:3 1.5}.fr{stroke:#111;stroke-width:0.5;fill:none}.dm{stroke:${dimCss.color};stroke-width:0.18;fill:none${dimCss.dash}}text{fill:#111;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}</style>` +
     `<rect width="100%" height="100%" fill="#fff"/>` + out.join('') + '</svg>';
@@ -222,7 +222,7 @@ export async function toPdf(dr, opt, meta = {}) {
   for (const t of dr.texts) {
     const size = t.h * scale * PT, c = X(t.at); let x = c.x;
     if (t.anchor === 'middle') x -= font.widthOfTextAtSize(t.text, size) / 2;
-    page.drawText(t.text, { x, y: c.y, size, font, color: black });
+    page.drawText(t.text, t.rot ? { x, y: c.y, size, font, color: black, rotate: degrees(t.rot) } : { x, y: c.y, size, font, color: black });
   }
   return await doc.save();
 }

@@ -158,6 +158,7 @@ export const ops = {
     if (p.text != null) e.text = String(p.text);
     if (p.h != null) e.h = +p.h;
     if (p.at) e.at = [+p.at[0], +p.at[1]];
+    if (p.ang != null) { let a = (+p.ang || 0) % 360; if (a > 180) a -= 360; if (a <= -180) a += 360; e.ang = Math.round(a * 1000) / 1000; }
     changed();
   },
   construction(id, onoff) { const s = ownerSketch(id); if (!s) throw new Error('找不到 ' + id); snap(); s.ents.find(e => e.id === id).construction = !!onoff; changed(); },
