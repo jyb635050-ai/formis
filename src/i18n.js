@@ -1,6 +1,6 @@
 // 中英文案。界面上所有文字都从这里取；用户自己输入的内容不翻译（放在 data-user-content 元素里）
 const zh = {
-  app: '玻璃 CAD', tagline: '网页制图与建模',
+  app: '形制', tagline: 'Formis · 网页制图与建模',
   'mode-2d': '二维制图', 'mode-3d': '三维建模', 'mode-sheet': '工程图',
   theme: '深色/浅色', themeDark: '切到深色', themeLight: '切到浅色', lang: 'English',
   projectName: '项目名', untitled: '未命名零件',
@@ -42,7 +42,7 @@ const zh = {
   autoSketch: '已自动选用草图', profileOpen: '草图轮廓没有封闭：红点是没接上的端点', keys: '快捷键：L 直线 · R 矩形 · C 圆 · A 圆弧 · D 尺寸 · S 选择 · 画图时直接敲数字定长度',
 };
 const en = {
-  app: 'GlassCAD', tagline: 'Web drafting & modeling',
+  app: 'Formis', tagline: 'Drafting & Modeling',
   'mode-2d': '2D Drafting', 'mode-3d': '3D Modeling', 'mode-sheet': 'Drawing Sheet',
   theme: 'Light/Dark', themeDark: 'Switch to dark', themeLight: 'Switch to light', lang: '中文',
   projectName: 'Project name', untitled: 'Untitled part',

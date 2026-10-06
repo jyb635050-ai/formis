@@ -241,7 +241,7 @@ export function makeKernel(R) {
       const a = vi(m.triangles[i]), b = vi(m.triangles[i + 1]), c = vi(m.triangles[i + 2]);
       if (a !== b && b !== c && a !== c) T.push(`<triangle v1="${a}" v2="${b}" v3="${c}"/>`);
     }
-    return `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="zh-CN" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Application">GlassCAD</metadata><resources><object id="1" type="model"><mesh><vertices>${V3.join('')}</vertices><triangles>${T.join('')}</triangles></mesh></object></resources><build><item objectid="1"/></build></model>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="zh-CN" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Application">Formis</metadata><resources><object id="1" type="model"><mesh><vertices>${V3.join('')}</vertices><triangles>${T.join('')}</triangles></mesh></object></resources><build><item objectid="1"/></build></model>`;
   }
 
   // 工程图投影：返回视图坐标系里的线段/圆/弧（visible / hidden）

@@ -43,7 +43,7 @@ function changed() {
 export function saveNow() { try { localStorage.setItem(KEY, JSON.stringify(S.doc)); } catch (e) { } }
 export function loadSaved() { try { const s = localStorage.getItem(KEY); if (s) { const d = JSON.parse(s); if (d && d.v === 1) { S.doc = d; return true; } } } catch (e) { } return false; }
 export function loadDoc(obj) {
-  if (!obj || obj.v !== 1 || !Array.isArray(obj.sketches) || !Array.isArray(obj.features)) throw new Error('不是 GlassCAD 项目文件');
+  if (!obj || obj.v !== 1 || !Array.isArray(obj.sketches) || !Array.isArray(obj.features)) throw new Error('不是 Formis 形制 项目文件');
   snap(); S.doc = JSON.parse(JSON.stringify(obj)); S.active = null; S.selSketch = null; changed(); emit('all');
 }
 export function resetDoc() { snap(); const seq = S.doc.seq; S.doc = newDoc(); S.doc.seq = seq; S.active = null; S.selSketch = null; changed(); emit('all'); }

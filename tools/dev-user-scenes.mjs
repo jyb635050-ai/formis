@@ -330,3 +330,8 @@ export async function reloadfit({ p, click, drag, tap, shot, sleep }) {
   await rl('reload-suppressed');
   console.log(JSON.stringify({ feats: await p.evaluate(() => __cad.features()), model: m1, suppressed: await at() }));
 }
+export async function brand({ p, shot, sleep }) {
+  await sleep(500); await p.screenshot({ path: 'shots/user-brand.png', clip: { x: 0, y: 0, width: 720, height: 70 } });
+  await p.click('[data-testid="lang"]').catch(() => { }); await sleep(300); await p.screenshot({ path: 'shots/user-brand-en.png', clip: { x: 0, y: 0, width: 720, height: 70 } });
+  console.log(await p.title());
+}

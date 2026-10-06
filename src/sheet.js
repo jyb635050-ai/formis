@@ -238,7 +238,7 @@ export function buildSheet(proj, bbox, size = 'A4', name = '', opt = {}) {
   const date = new Date().toISOString().slice(0, 10);
   cell(0, t('titleName'), name || t('untitled'));
   cell(1, t('scale'), scaleText(s) + '   ' + t('sheetSize') + ' ' + size);
-  cell(2, t('drawnBy'), 'GlassCAD');
+  cell(2, t('drawnBy'), 'Formis');
   cell(3, t('date'), date + (getLang() === 'zh' ? '   第一角投影' : '   First-angle'));
   const map = p => [p[0] * s, PH - p[1] * s];
   return { drawing: { ents, dims, texts }, page: paper.slice(), scale: s, auto, overflow, iso: isoInfo, map, scaleText: scaleText(s), hiddenDims: hidden, viewRects };

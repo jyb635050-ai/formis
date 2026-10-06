@@ -13,15 +13,15 @@
 - 任务4–7：sketch 18/18、ui3d 13/13、sheet 5/5、persist 4/4
 - 本地全量 84/84、退出码 0（1分24秒）
 - 任务8：--prove 14/14 抓到、退出码 1（3分54秒）
-- 任务9：仓库 github.com/jyb635050-ai/glass-cad（main=源码，gh-pages=构建产物，带 .nojekyll）；线上 https://jyb635050-ai.github.io/glass-cad/ `--url` 83/83、退出码 0；线上内核 2.2 秒就绪（Pages 对 wasm 走 gzip，7.3MB）
+- 任务9：仓库 github.com/jyb635050-ai/formis（main=源码，gh-pages=构建产物，带 .nojekyll）；线上 https://jyb635050-ai.github.io/formis/ `--url` 83/83、退出码 0；线上内核 2.2 秒就绪（Pages 对 wasm 走 gzip，7.3MB）
 - 判卷外自检：L 形零件拉伸+贯穿切 30500、三角形旋转 270° 15707.96 与公式一致；源码无探测判卷字样；连续改尺寸 30 次重建 31→12ms 不涨
 - 遗留：导出的 DXF 只用 ezdxf 验过，没在 AutoCAD/DWG TrueView 里人工打开看（尺寸块名不带 *，Autodesk 是否照常显示未验证）
 
 ## 部署方法
 1. `npm run build`
 2. `rm -rf .deploy && cp -r dist .deploy && touch .deploy/.nojekyll`，在 .deploy 里 `git init -b gh-pages` 并提交
-3. 单独一条命令：`git -C .deploy push -f https://github.com/jyb635050-ai/glass-cad.git gh-pages:gh-pages`
-4. `node tools/accept.mjs --url https://jyb635050-ai.github.io/glass-cad/`
+3. 单独一条命令：`git -C .deploy push -f https://github.com/jyb635050-ai/formis.git gh-pages:gh-pages`
+4. `node tools/accept.mjs --url https://jyb635050-ai.github.io/formis/`
 
 ## 2026-10-04 用户反馈修复（没有对象捕捉/自动对齐/辅助画图、三维拉伸不了、草图选不中）
 - 根因：矩形/圆只认"点两下"，按住拖画什么都不留下 → 草图空、拉伸做不出；画线无任何捕捉提示，轮廓难闭合
@@ -104,3 +104,10 @@
 - 现在：刷新后第一次重建完，有实体按实体居中（等轴测），没实体按显示着的草图实际图形居中（太小的按 20mm 见方）；「视图」按钮在没实体时也按草图居中
 - 被压缩特征的草图会显示出来（view.js drawSketches、tools.js 悬停/框选同步）
 - 自测场景 `reloadfit`：画在 (150..190, 120..150) 远离原点、平移出画面后刷新 → 实体中心 x≈627（空闲区中心）；压缩后刷新 → 草图中心同样 x≈627
+
+## 2026-10-06 改名：形制 Formis
+- 用户：GlassCAD/玻璃 CAD 不行，CAD 只代表平面；要中英都高端的名字 → 用户选「形制 Formis」，网址一起改
+- 仓库 jyb635050-ai/glass-cad 改名为 jyb635050-ai/formis，网址 https://jyb635050-ai.github.io/formis/（旧 /glass-cad/ 不再可用）
+- 界面名称、标题、图标（方块里一个立体线框＝平面+三维）、PDF/3MF 元数据、工程图标题栏「制图」、项目文件后缀 .formis.json 都已改
+- localStorage 键保持 glasscad.*（同一个域名 jyb635050-ai.github.io，用户自动保存的图纸能直接带到新网址）；本地目录名 D:\blender\GlassCAD 不改
+- 判卷不改：accept.mjs 本地用 /glass-cad/ 子路径只是模拟挂载路径，和名字无关；线上用 --url https://jyb635050-ai.github.io/formis/

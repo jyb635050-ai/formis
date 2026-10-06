@@ -194,7 +194,7 @@ export async function toPdf(dr, opt, meta = {}) {
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(await cjkFont(), { subset: true });
-  doc.setTitle(meta.title || 'GlassCAD'); doc.setCreator('GlassCAD'); doc.setProducer('GlassCAD');
+  doc.setTitle(meta.title || 'Formis'); doc.setCreator('Formis 形制'); doc.setProducer('Formis 形制');
   const [pw, ph] = opt.page, page = doc.addPage([pw * PT, ph * PT]);
   const ts = opt.ts || 3.5, scale = opt.scale;
   const X = p => { const q = opt.map(p); return { x: q[0] * PT, y: (ph - q[1]) * PT }; };

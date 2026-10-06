@@ -379,7 +379,7 @@ for (const b of $$('[data-view]')) b.addEventListener('click', () => { if (S.mod
 // ───── 项目名、保存、打开、撤销 ─────
 $('#pname').addEventListener('change', e => ops.rename(e.target.value.trim()));
 $('#pname').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); });
-$('[data-testid="save"]').addEventListener('click', () => download(new Blob([JSON.stringify(S.doc, null, 1)], { type: 'application/json' }), safeName(S.doc.name || t('untitled')) + '.glasscad.json'));
+$('[data-testid="save"]').addEventListener('click', () => download(new Blob([JSON.stringify(S.doc, null, 1)], { type: 'application/json' }), safeName(S.doc.name || t('untitled')) + '.formis.json'));
 $('[data-testid="open"]').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   try { await api.load(JSON.parse(await f.text())); toast(t('opened')); } catch (err) { toast(err.message, true); }
