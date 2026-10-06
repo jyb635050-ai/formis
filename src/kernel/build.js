@@ -1,3 +1,4 @@
+import ClipperLib from 'clipper-lib';
 // 几何建模（纯函数）：Worker 与 node 自测共用。输入项目文档，按特征顺序用 OpenCascade（replicad）重建实体。
 // 约定：毫米、Z 朝上；草图平面 {origin, normal, u, v}，v = normal × u。
 
@@ -106,18 +107,122 @@ export function sketchLoops(sk) {
 }
 function centroidish(poly) { let x = 0, y = 0; for (const p of poly) { x += p[0]; y += p[1]; } return [x / poly.length, y / poly.length]; }
 
+// ───── 文字轮廓的几何小工具 ─────
+const signedArea = P => { let a = 0; for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+function flattenLoop(L) {
+  const out = [];
+  for (const s of L) {
+    out.push(s.p[0]);
+    if (s.k !== 'B') continue;
+    const n = s.p.length === 3 ? 8 : 12;
+    for (let i = 1; i < n; i++) {
+      const t = i / n, m = 1 - t;
+      if (s.p.length === 3) out.push([0, 1].map(k => m * m * s.p[0][k] + 2 * m * t * s.p[1][k] + t * t * s.p[2][k]));
+      else out.push([0, 1].map(k => m * m * m * s.p[0][k] + 3 * m * m * t * s.p[1][k] + 3 * m * t * t * s.p[2][k] + t * t * t * s.p[3][k]));
+    }
+  }
+  return out;
+}
+function selfCrossing(P) {
+  const n = P.length, cr = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  for (let i = 0; i < n; i++) for (let j = i + 2; j < n; j++) {
+    if (i === 0 && j === n - 1) continue;
+    const a = P[i], b = P[(i + 1) % n], c = P[j], d = P[(j + 1) % n];
+    const d1 = cr(c, d, a), d2 = cr(c, d, b), d3 = cr(a, b, c), d4 = cr(a, b, d);
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  }
+  return false;
+}
+function untangle(P) {
+  const K = 1e5, C = new ClipperLib.Clipper(), tree = new ClipperLib.PolyTree();
+  C.AddPath(P.map(p => ({ X: Math.round(p[0] * K), Y: Math.round(p[1] * K) })), ClipperLib.PolyType.ptSubject, true);
+  C.Execute(ClipperLib.ClipType.ctUnion, tree, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+  const out = [];
+  const walk = node => { for (const ch of node.Childs()) { const c = ch.Contour(); if (c.length >= 3) out.push({ hole: ch.IsHole(), pts: c.map(q => [q.X / K, q.Y / K]) }); walk(ch); } };
+  walk(tree);
+  return out;
+}
+
 export function makeKernel(R) {
   const wireOf = (L, pl) => {
     const W = uv => toWorld(pl, uv);
     if (L.kind === 'circle') return R.assembleWire([R.makeCircle(L.r, W(L.c), pl.normal)]);
     return R.assembleWire(L.segs.map(s => (s.type === 'line' ? R.makeLine(W(s.a), W(s.b)) : R.makeThreePointArc(W(s.a), W(s.m), W(s.b)))));
   };
-  const facesOf = (sk, pl) => {
+  // 草图文字（at = 基线左端，h = 字号 mm；字体由 Worker 先 loadFont 好）→ 每个字的轮廓环
+  // 这套字体（可变字体实例化出来的）很多字是笔画叠在一起画的，直接按嵌套关系做面会出坏面、网格出不来，
+  // 所以每个轮廓环单独做面：和最大的环同向的是"笔画"、反向的是"孔"，拉成柱体后 笔画全并起来 再减孔
+  const textGlyphs = (sk, pl) => {
+    const out = [];
+    for (const e of sk.ents) {
+      if (e.type !== 'text' || e.construction || !String(e.text || '').trim()) continue;
+      const font = R.getFont(); if (!font) throw new Error('字体还没加载好，请稍后重试');
+      for (const path of font.getPaths(String(e.text), 0, 0, +e.h || 5)) {
+        const loops = []; let cur = null, start = null, last = null;
+        const P = (x, y) => [x + e.at[0], -y + e.at[1]];
+        const same = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-7;
+        const close = () => { if (cur && last && !same(last, start)) cur.push({ k: 'L', p: [last, start] }); if (cur && cur.length) loops.push(cur); cur = null; };
+        for (const c of path.commands) {
+          if (c.type === 'M') { close(); cur = []; start = last = P(c.x, c.y); continue; }
+          if (c.type === 'Z') { close(); continue; }
+          if (!cur) continue;
+          const q = P(c.x, c.y); if (same(q, last)) continue;
+          if (c.type === 'L') cur.push({ k: 'L', p: [last, q] });
+          else if (c.type === 'Q') cur.push({ k: 'B', p: [last, P(c.x1, c.y1), q] });
+          else if (c.type === 'C') cur.push({ k: 'B', p: [last, P(c.x1, c.y1), P(c.x2, c.y2), q] });
+          last = q;
+        }
+        close();
+        const items = [], W = uv => toWorld(pl, uv);
+        for (const L of loops) {
+          const poly = flattenLoop(L), a = signedArea(poly);
+          if (Math.abs(a) < 1e-8) continue;
+          if (!selfCrossing(poly)) { items.push({ wire: R.assembleWire(L.map(s => (s.k === 'L' ? R.makeLine(W(s.p[0]), W(s.p[1])) : R.makeBezierCurve(s.p.map(W))))), area: a }); continue; }
+          // 自己和自己交叉的轮廓（如数字 6）：按非零环绕规则拆成简单的外环＋孔，用细折线代替曲线
+          for (const r of untangle(poly)) items.push({ wire: ringWire(r.pts, W), area: (r.hole ? -1 : 1) * Math.sign(a) * Math.abs(signedArea(r.pts)) });
+        }
+        if (items.length) out.push(items);
+      }
+    }
+    return out;
+  };
+  // 文字拉成实体：fc → 拉伸方向向量 vec，shift → 先整体平移（贯穿切除用）
+  const textSolid = (glyphs, vec, shift) => {
+    const all = glyphs.flat(); if (!all.length) return null;
+    const sgn = Math.sign(all.reduce((a, b) => (Math.abs(b.area) > Math.abs(a.area) ? b : a)).area);
+    const prism = it => { let f = R.makeFace(it.wire); if (shift) f = f.translate(shift); return R.basicFaceExtrusion(f, new R.Vector(vec)); };
+    const solids = [];
+    for (const g of glyphs) {
+      let s = fuseAll(g.filter(it => Math.sign(it.area) === sgn).map(prism));
+      if (!s) continue;
+      for (const it of g.filter(it => Math.sign(it.area) !== sgn)) s = s.cut(prism(it));
+      solids.push(s);
+    }
+    return fuseAll(solids);
+  };
+  const facesOf = (sk, pl, allowEmpty) => {
     const regions = sketchLoops(sk);
-    if (!regions.length) throw new Error('草图里没有封闭轮廓');
+    if (!regions.length && !allowEmpty) throw new Error('草图里没有封闭轮廓');
     // 内孔环必须与外环反向，否则孔会被当成实体加进去
     const rev = w => R.cast(w.wrapped.Reversed());
     return regions.map(r => R.makeFace(wireOf(r.outer, pl), r.holes.map(h => rev(wireOf(h, pl)))));
+  };
+  // 折线环 → 线框：在拐角处断开，平滑的一段拟合成样条（侧面是一整块光滑面，不会出一堆竖线），直的一段用直线
+  const ringWire = (pts, W) => {
+    const n = pts.length, ang = i => { const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n]; const u = [b[0] - a[0], b[1] - a[1]], v = [c[0] - b[0], c[1] - b[1]]; return Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])); };
+    let cs = []; for (let i = 0; i < n; i++) if (ang(i) > 0.5) cs.push(i);
+    if (cs.length < 2) cs = [0, Math.floor(n / 2)];
+    const edges = [];
+    try {
+      for (let k = 0; k < cs.length; k++) {
+        const i0 = cs[k], i1 = cs[(k + 1) % cs.length], run = [];
+        for (let i = i0; ; i = (i + 1) % n) { run.push(pts[i]); if (i === i1 && run.length > 1) break; }
+        const a = run[0], b = run[run.length - 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const dev = Math.max(...run.map(q => Math.abs((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])) / L));
+        edges.push(run.length <= 2 || dev < 1e-3 ? R.makeLine(W(a), W(b)) : R.makeBSplineApproximation(run.map(W), { tolerance: 1e-3, degMax: 3 }));
+      }
+      return R.assembleWire(edges);
+    } catch (e) { return R.assembleWire(pts.map((q, i) => R.makeLine(W(q), W(pts[(i + 1) % n])))); }
   };
   const fuseAll = shapes => shapes.reduce((a, b) => (a ? a.fuse(b) : b), null);
   const bboxOf = s => { const b = s.boundingBox.bounds; return [b[0].slice(), b[1].slice()]; };
@@ -154,17 +259,21 @@ export function makeKernel(R) {
           if (S.faceRef) { if (!solid) throw new Error('草图所在的面不存在'); pl = facePlane(solid, resolveRef(bboxOf(solid), S.faceRef.desc), S.faceRef.normal); planes[S.id] = pl; }
           const isCut = f.type === 'cut' || p.cut;
           let dir = isCut ? -1 : 1; if (p.reverse) dir = -dir;
-          let faces = facesOf(S, pl), vec;
+          const glyphs = textGlyphs(S, pl);
+          let faces = facesOf(S, pl, glyphs.length > 0), vec, shift = null;
           if (p.through) {
             if (!solid) throw new Error('没有实体可切');
             const L = diag(solid) + 10;
-            faces = faces.map(fc => fc.translate(V.mul(pl.normal, L)));
+            shift = V.mul(pl.normal, L);
+            faces = faces.map(fc => fc.translate(shift));
             vec = V.mul(pl.normal, -2 * L);
           } else {
             if (!(p.depth > 0)) throw new Error('深度必须大于 0');
             vec = V.mul(pl.normal, dir * p.depth);
           }
-          const tool = fuseAll(faces.map(fc => R.basicFaceExtrusion(fc, new R.Vector(vec))));
+          const parts = faces.map(fc => R.basicFaceExtrusion(fc, new R.Vector(vec)));
+          const ts = textSolid(glyphs, vec, shift); if (ts) parts.push(ts);
+          const tool = fuseAll(parts);
           if (isCut) { if (!solid) throw new Error('没有实体可切'); solid = solid.cut(tool); }
           else solid = solid ? solid.fuse(tool) : tool;
         } else if (f.type === 'revolve') {

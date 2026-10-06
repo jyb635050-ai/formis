@@ -7,6 +7,7 @@ import { arcPoints } from './kernel/build.js';
 import * as view from './view.js';
 import { t } from './i18n.js';
 import { fmt } from './util.js';
+import { textBox } from './font.js';
 
 export const T = { tool: 'select', st: {}, pick: null, sel: new Set(), pendingTool: null };
 let toast = () => { };
@@ -153,7 +154,12 @@ export function hitEnt(s, x, y, tol = 7) {
   const uv = view.screenToPlane(s.plane, x, y); if (!uv) return null;
   const k = view.pxPerMm(); let best = null;
   for (const e of s.ents) {
-    if (e.type === 'text') continue;
+    if (e.type === 'text') {
+      // 文字：点在字框里（含边上几像素）就算点中
+      const [[x0, y0], [x1, y1]] = textBox(e), dx = Math.max(x0 - uv[0], 0, uv[0] - x1), dy = Math.max(y0 - uv[1], 0, uv[1] - y1);
+      const px = Math.hypot(dx, dy) * k; if (px <= tol && (!best || px < best.px)) best = { id: e.id, ent: e, px };
+      continue;
+    }
     const px = D(nearestOn(e, uv), uv) * k;
     if (e.type === 'arc') { const ap = arcPoints(e); let a = (Math.atan2(uv[1] - e.c[1], uv[0] - e.c[0]) * 180) / Math.PI; while (a < ap.a0) a += 360; if (a > ap.a1) continue; }
     if (px <= tol && (!best || px < best.px)) best = { id: e.id, ent: e, px };
@@ -257,9 +263,16 @@ function sketchDown(e) {
       T.st = { drag: hp.ref, moved: false, relax: relaxedDims(s, hp.ref) }; beginDrag(); return;
     }
     const he = hitEnt(s, x, y);
+    if (he && he.ent.type === 'text') {
+      // 文字：点中就选中，按住拖动换位置（真拖动了才记一步撤销）
+      if (!e.shiftKey && !e.ctrlKey) T.sel.clear(); T.sel.add(he.id); syncSel();
+      const uv = view.screenToPlane(s.plane, x, y); if (uv) T.st = { tdrag: he.id, from: uv, at0: he.ent.at.slice(), moved: false };
+      return;
+    }
     if (he) { if (!e.shiftKey && !e.ctrlKey) T.sel.clear(); T.sel.has(he.id) ? T.sel.delete(he.id) : T.sel.add(he.id); syncSel(); return; }
     T.st = { box: [x, y], add: e.shiftKey || e.ctrlKey }; return;
   }
+  if (T.tool === 'text') { const p = snapAt(s, x, y, {}); const uv = p ? p.uv : view.screenToPlane(s.plane, x, y); if (uv) placeText(s, uv); return; }
   if (T.tool === 'dim') return dimDown(s, x, y);
   const p = snapAt(s, x, y, { from: T.st.start && T.st.start.uv });
   if (!p) return;
@@ -278,6 +291,11 @@ function sketchMove(e) {
     T.st.moved = true; solveSketch(s, { ref: T.st.drag, uv }, T.st.relax); updateRelaxed(s, T.st.relax); view.drawSketches(); return;
   }
   if (T.st.box) { drawBox(T.st.box[0], T.st.box[1], x, y); return; }
+  if (T.st.tdrag) {
+    const uv = view.screenToPlane(s.plane, x, y), en = s.ents.find(q => q.id === T.st.tdrag); if (!uv || !en) return;
+    if (!T.st.moved) { if (Math.hypot(uv[0] - T.st.from[0], uv[1] - T.st.from[1]) * view.pxPerMm() < 3) return; T.st.moved = true; beginDrag(); }
+    en.at = [T.st.at0[0] + uv[0] - T.st.from[0], T.st.at0[1] + uv[1] - T.st.from[1]]; view.drawSketches(); return;
+  }
   T.st.lastXY = [x, y];
   let p = null, prev = [], info = [];
   if (['line', 'rect', 'circle', 'arc'].includes(T.tool)) {
@@ -288,6 +306,8 @@ function sketchMove(e) {
     if (lab) info.unshift(`<b>${lab}</b>`);
     if (T.st.start && !info.length) info.push('');
     showReadout(x, y, info.filter(Boolean));
+  } else if (T.tool === 'text') {
+    const p = snapAt(s, x, y, {}); drawSnap(s.id, p); showReadout(x, y, [`<b>${t('textHere')}</b>`]);
   } else if (T.tool === 'dim' || T.tool === 'select') {
     ov.innerHTML = ''; readout.hidden = true;
     if (T.tool === 'dim' && T.st.place) {
@@ -314,6 +334,7 @@ function sketchMove(e) {
 function sketchUp(e) {
   const s = active();
   if (T.st.drag) { updateRelaxed(s, T.st.relax); solveSketch(s); T.st = {}; endDrag(); view.drawSketches(); return; }
+  if (T.st.tdrag) { const mv = T.st.moved; T.st = {}; if (mv) endDrag(); return; }
   if (T.st.box) {
     const [ax, ay] = T.st.box, bx = e.clientX, by = e.clientY; const add = T.st.add; T.st = {}; ov.innerHTML = '';
     if (!add) T.sel.clear();
@@ -334,7 +355,7 @@ function samplesOf(en) {
   if (en.type === 'line') for (let i = 0; i <= 40; i++) P.push([en.a[0] + (en.b[0] - en.a[0]) * i / 40, en.a[1] + (en.b[1] - en.a[1]) * i / 40]);
   else if (en.type === 'circle') for (let i = 0; i < 48; i++) P.push([en.c[0] + en.r * Math.cos(i / 48 * 2 * Math.PI), en.c[1] + en.r * Math.sin(i / 48 * 2 * Math.PI)]);
   else if (en.type === 'arc') { const ap = arcPoints(en); for (let i = 0; i <= 32; i++) { const a = (ap.a0 + (ap.a1 - ap.a0) * i / 32) * Math.PI / 180; P.push([en.c[0] + en.r * Math.cos(a), en.c[1] + en.r * Math.sin(a)]); } }
-  else if (en.type === 'text') P.push(en.at);
+  else if (en.type === 'text') { const [[x0, y0], [x1, y1]] = textBox(en); P.push([x0, y0], [x1, y0], [x1, y1], [x0, y1]); }
   return P;
 }
 function boxPick(s, ax, ay, bx, by) {
@@ -441,7 +462,7 @@ function lockedAt(s, uv) { return dimmedPoints(s).some(p => Math.hypot(p[0] - uv
 //   两条平行线 → 间距；两条不平行线 → 角度；点/圆心 + 线 → 垂直距离；圆 + 圆 → 圆心距
 function pickTarget(s, x, y) {
   const hp = hitPoint(s, x, y); if (hp) return { kind: 'pt', ref: hp.ref, id: hp.ref.split('.')[0] };
-  const he = hitEnt(s, x, y); if (he) return { kind: he.ent.type, ent: he.ent, id: he.id };
+  const he = hitEnt(s, x, y); if (he && he.ent.type !== 'text') return { kind: he.ent.type, ent: he.ent, id: he.id };
   return null;
 }
 function single(t) {
@@ -598,7 +619,11 @@ view.setHandler({
   },
   up(e) { if (S.active) sketchUp(e); },
   dbl(e) {
-    if (S.active) { if (T.tool === 'line') { T.st = {}; view.setSketchState({ preview: [] }); clearOverlay(); } return; }
+    if (S.active) {
+      if (T.tool === 'line') { T.st = {}; view.setSketchState({ preview: [] }); clearOverlay(); return; }
+      const s = active(), he = s && hitEnt(s, e.clientX, e.clientY); if (he && he.ent.type === 'text') openTextEditor(he.id, false);
+      return;
+    }
     const sk = sketchUnder(e.clientX, e.clientY); if (sk) onEditSketch(sk);
   },
 });
@@ -678,7 +703,62 @@ window.addEventListener('keydown', e => {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.active && T.sel.size) { const ids = [...T.sel]; T.sel.clear(); txn(() => ids.forEach(id => tryC(() => ops.del(id)))); syncSel(); }
   if (S.active && !T.st.start) {
-    const map = { l: 'line', r: 'rect', c: 'circle', a: 'arc', d: 'dim', s: 'select' };
+    const map = { l: 'line', r: 'rect', c: 'circle', a: 'arc', d: 'dim', s: 'select', t: 'text' };
     if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
   }
 });
+
+// ───── 文字：点一下放文字，弹出小面板改内容和字号（实时预览）；双击已有文字再改 ─────
+const tbox = document.getElementById('textbox'), tIn = document.getElementById('tx-text'), hIn = document.getElementById('tx-h'), hRange = document.getElementById('tx-hr');
+let tedit = null; // { id, orig:{text,h}, isNew }
+const textEnt = id => { const s = active(); return s && s.ents.find(e => e.id === id); };
+function placeText(s, uv) {
+  let id; try { id = ops.text(s.id, uv, t('textDefault'), T.textH || defaultTextH()); } catch (err) { toast(err.message, true); return; }
+  openTextEditor(id, true);
+}
+// 默认字号：屏幕上大约 40 像素高，取整到常用数
+function defaultTextH() { const mm = 40 / Math.max(1e-6, view.pxPerMm()); const n = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 80, 100]; return n.find(v => v >= mm) || 100; }
+export function openTextEditor(id, isNew) {
+  const s = active(), e = textEnt(id); if (!s || !e) return;
+  if (tedit) commitText();
+  tedit = { id, isNew, orig: { text: e.text, h: e.h } };
+  T.sel = new Set([id]); syncSel();
+  const p = view.toScreen(s.id, [e.at[0], e.at[1] - e.h * 0.4]);
+  tbox.style.left = Math.min(innerWidth - 320, Math.max(10, p.x)) + 'px'; tbox.style.top = Math.min(innerHeight - 150, Math.max(70, p.y + 12)) + 'px'; tbox.hidden = false;
+  tIn.value = e.text; hIn.value = fmt(e.h); hRange.value = Math.min(100, e.h);
+  tIn.focus(); tIn.select();
+}
+function liveText() {
+  const e = tedit && textEnt(tedit.id); if (!e) return;
+  e.text = tIn.value; const h = parseFloat(hIn.value); if (h > 0) e.h = h;
+  view.drawSketches();
+}
+export function commitText() {
+  if (!tedit) return; const ed = tedit; tedit = null; tbox.hidden = true;
+  const e = textEnt(ed.id); if (!e) return;
+  const nv = { text: e.text, h: e.h }; Object.assign(e, ed.orig);
+  try {
+    if (!nv.text.trim()) { ops.del(ed.id); T.sel.delete(ed.id); syncSel(); return; }
+    if (nv.text !== ed.orig.text || nv.h !== ed.orig.h) ops.setText(ed.id, nv, ed.isNew);
+    T.textH = nv.h;
+  } catch (err) { toast(err.message, true); }
+  view.drawSketches(); emit('sketch');
+}
+function cancelText() {
+  if (!tedit) return; const ed = tedit; tedit = null; tbox.hidden = true;
+  const e = textEnt(ed.id); if (e) Object.assign(e, ed.orig);
+  if (ed.isNew) { try { ops.del(ed.id); } catch (err) { } }
+  view.drawSketches();
+}
+tIn.addEventListener('input', liveText);
+hIn.addEventListener('input', () => { const h = parseFloat(hIn.value); if (h > 0) hRange.value = Math.min(100, h); liveText(); });
+hRange.addEventListener('input', () => { hIn.value = hRange.value; liveText(); });
+for (const b of tbox.querySelectorAll('[data-step]')) b.addEventListener('click', () => {
+  const h = parseFloat(hIn.value) || 5, k = +b.dataset.step; const nh = Math.max(0.5, Math.round((k > 0 ? h * 1.25 : h / 1.25) * 10) / 10);
+  hIn.value = fmt(nh); hRange.value = Math.min(100, nh); liveText();
+});
+tbox.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); commitText(); } if (e.key === 'Escape') cancelText(); });
+document.getElementById('tx-ok').addEventListener('click', commitText);
+document.getElementById('tx-del').addEventListener('click', () => { if (!tedit) return; const ed = tedit; cancelText(); if (!ed.isNew) { try { ops.del(ed.id); } catch (err) { toast(err.message, true); } } T.sel.delete(ed.id); syncSel(); });
+// 点到面板外面＝确认
+document.addEventListener('pointerdown', e => { if (tedit && !tbox.contains(e.target)) commitText(); }, true);

@@ -4,6 +4,7 @@ import { S, dimLabel, sketchById, dimPoints, dimStyle } from './doc.js';
 import { toWorld, arcPoints, V } from './kernel/build.js';
 import { ptOf } from './solver.js';
 import { fmt } from './util.js';
+import { textOutline, fontReady, loadFont } from './font.js';
 
 const host = document.querySelector('[data-testid="viewport"]');
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
@@ -438,9 +439,15 @@ export function drawSketches() {
     if (!editing && s.id === S.selSketch) base = under = theme.select;
     else if (!editing && s.id === sketchState.hoverSketch) base = under = theme.hover;
     const normal = [], cons = [], hov = [], sel = [];
+    let needLabel = false;
     for (const e of s.ents) {
-      if (e.type === 'text') continue;
-      const segs = sampleEnt(e, s);
+      let segs;
+      if (e.type === 'text') {
+        // 文字画成真实字形轮廓（就是拉伸/切除出来的形状）；字体还没到先用文字标签顶着
+        const o = textOutline(e);
+        if (!o) { needLabel = true; if (!fontReady()) loadFont().then(() => drawSketches()).catch(() => { }); continue; }
+        segs = []; for (const L of o.loops) for (let i = 0; i + 1 < L.length; i++) segs.push([L[i], L[i + 1]]);
+      } else segs = sampleEnt(e, s);
       if (sketchState.sel.has(e.id)) sel.push(...segs); else if (sketchState.hover === e.id) hov.push(...segs); else if (e.construction) cons.push(...segs); else normal.push(...segs);
     }
     if (normal.length) sketchGrp.add(segObj(pl, normal, full ? base : under));
@@ -465,7 +472,7 @@ export function drawSketches() {
       }
       // 尺寸
       if (sketchState.dimPreview) drawDim(s, sketchState.dimPreview, true, true);
-      for (const e of s.ents) if (e.type === 'text') textLabel(s, e);
+      if (needLabel) for (const e of s.ents) if (e.type === 'text') textLabel(s, e);
     }
     if (S.showDims !== false) for (const d of s.dims) drawDim(s, d, false, editing);
     if (sketchState.preview && editing && sketchState.preview.length) sketchGrp.add(segObj(pl, sketchState.preview, theme.preview));
@@ -574,7 +581,7 @@ function placeLabels() {
   for (const el of labels.children) {
     if (!el.dataset.wx) continue;
     const p = project(JSON.parse(el.dataset.wx));
-    el.style.transform = `translate(${p.x - r.left}px, ${p.y - r.top}px) translate(-50%, -50%)`;
+    el.style.transform = `translate(${p.x - r.left}px, ${p.y - r.top}px)` + (el.classList.contains('sk-text') ? ' translate(0, -85%)' : ' translate(-50%, -50%)');
     if (el.dataset.h) el.style.fontSize = Math.max(9, +el.dataset.h * C.scale) + 'px';
   }
 }

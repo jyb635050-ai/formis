@@ -25,6 +25,8 @@ async function pump() {
     const msg = queue.shift();
     // 后面还有更新的重建请求，这次直接跳过（拖尺寸时只算最后一次）
     if (msg.type === 'build' && queue.some(q => q.type === 'build')) { postMessage({ type: 'skipped', ver: msg.ver }); continue; }
+    // 草图里有文字：先把字体载进内核（只载一次）
+    if (msg.type === 'build' && msg.doc && msg.doc.font && !R.getFont()) { try { await R.loadFont(msg.doc.font); } catch (e) { } }
     try { handle(msg); }
     catch (err) { postMessage({ type: 'fail', id: msg.id, ver: msg.ver, error: String((err && err.message) || err) }); }
   }

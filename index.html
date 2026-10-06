@@ -52,6 +52,7 @@
   <button data-testid="tool-circle" data-tool="circle" data-ti="tool-circle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.2"/></svg></button>
   <button data-testid="tool-arc" data-tool="arc" data-ti="tool-arc"><svg viewBox="0 0 24 24"><path d="M4 18a10 10 0 0 1 16 0"/></svg></button>
   <button data-testid="tool-dim" data-tool="dim" data-ti="tool-dim"><svg viewBox="0 0 24 24"><path d="M4 8v10M20 8v10M4 13h16M7 10l-3 3 3 3M17 10l3 3-3 3"/></svg></button>
+  <button data-testid="tool-text" data-tool="text" data-ti="tool-text"><svg viewBox="0 0 24 24"><path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6"/></svg></button>
   <button id="dim-style-btn" data-ti="dimStyle"><svg viewBox="0 0 24 24"><path d="M4 8v10M20 8v10" /><path d="M4 13h16" stroke-dasharray="2.5 2"/><circle cx="18" cy="5" r="2"/></svg></button>
   <button id="dims-toggle" data-testid="dims-toggle" data-ti="dimsToggle"><svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.6"/><path class="slash" d="M4 20 20 4"/></svg></button>
   <button id="tool-construction" data-ti="tool-construction"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 3"/></svg></button>
@@ -108,6 +109,15 @@
 </section>
 <div id="status"></div>
 <div id="toast" hidden></div>
+<div id="textbox" class="glass" hidden>
+  <input id="tx-text" data-testid="text-input" autocomplete="off" data-ti="textContent">
+  <div class="row"><span data-i="textSize"></span>
+    <button class="mini" data-step="-1" data-ti="textSmaller">A−</button>
+    <input id="tx-hr" type="range" min="1" max="100" step="0.5">
+    <button class="mini" data-step="1" data-ti="textBigger">A+</button>
+    <input id="tx-h" data-testid="text-size" class="num" inputmode="decimal" autocomplete="off"><span>mm</span></div>
+  <div class="row end"><small data-i="textTip"></small><button id="tx-del" class="mini" data-i="del"></button><button id="tx-ok" class="primary" data-i="ok"></button></div>
+</div>
 <div id="dimbox" class="glass" hidden><input data-testid="dim-input" inputmode="decimal" autocomplete="off"></div>
 <script type="module" src="/src/main.js"></script>
 </body>

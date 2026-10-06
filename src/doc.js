@@ -150,6 +150,16 @@ export const ops = {
   circle(sid, c, r) { const s = sk(sid); if (!(r > 0)) throw new Error('半径要大于 0'); snap(); const id = nid('C'); s.ents.push({ id, type: 'circle', c: [+c[0], +c[1]], r: +r }); resolve(s); changed(); return id; },
   arc(sid, c, r, a0, a1) { const s = sk(sid); if (!(r > 0)) throw new Error('半径要大于 0'); snap(); const id = nid('A'); s.ents.push({ id, type: 'arc', c: [+c[0], +c[1]], r: +r, a0: +a0, a1: +a1 }); resolve(s); changed(); return id; },
   text(sid, at, text, h) { const s = sk(sid); snap(); const id = nid('T'); s.ents.push({ id, type: 'text', at: [+at[0], +at[1]], text: String(text), h: +h || 5 }); changed(); return id; },
+  // 改文字内容/字号/位置；quiet＝不另记一步撤销（刚放下的新文字确认时用）
+  setText(id, p, quiet) {
+    const s = ownerSketch(id), e = s && s.ents.find(x => x.id === id && x.type === 'text'); if (!e) throw new Error('文字不存在：' + id);
+    if (p.h != null && !(+p.h > 0)) throw new Error('字号必须大于 0');
+    if (!quiet) snap();
+    if (p.text != null) e.text = String(p.text);
+    if (p.h != null) e.h = +p.h;
+    if (p.at) e.at = [+p.at[0], +p.at[1]];
+    changed();
+  },
   construction(id, onoff) { const s = ownerSketch(id); if (!s) throw new Error('找不到 ' + id); snap(); s.ents.find(e => e.id === id).construction = !!onoff; changed(); },
   constrain(sid, type, ...refs) {
     const s = sk(sid);

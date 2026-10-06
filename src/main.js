@@ -9,6 +9,7 @@ import { t, getLang, setLang, featName } from './i18n.js';
 import { $, $$, h, fmt, download, safeName } from './util.js';
 import { sketchDrawing, toDxf, toSvg, toPdf, sketchPage } from './export.js';
 import { buildSheet } from './sheet.js';
+import { fontUrl } from './font.js';
 
 const ready = { ui: false, kernel: false };
 
@@ -51,8 +52,10 @@ const kernel = createKernel({
 let firstModel = true;
 function payload() {
   const used = new Set(S.doc.features.map(f => f.sketch).filter(Boolean));
+  const sks = S.doc.sketches.filter(s => used.has(s.id));
   return {
-    sketches: S.doc.sketches.filter(s => used.has(s.id)).map(s => ({ id: s.id, plane: s.faceRef ? null : s.plane, faceRef: s.faceRef || null, ents: s.ents })),
+    font: sks.some(s => s.ents.some(e => e.type === 'text')) ? fontUrl() : null,
+    sketches: sks.map(s => ({ id: s.id, plane: s.faceRef ? null : s.plane, faceRef: s.faceRef || null, ents: s.ents })),
     features: S.doc.features.map(f => ({ id: f.id, type: f.type, sketch: f.sketch, params: f.params, suppressed: !!f.suppressed })),
   };
 }
@@ -329,6 +332,7 @@ function renderStatus() {
   const a = S.active && sketchById(S.active);
   if (a) s += ` · ${t('dof')} ${a.dof || 0}（${(a.dof || 0) === 0 ? t('fully') : t('under')}）`;
   if (a) s += ' · ' + t('keys');
+  if (a && S.mode === '3d') s = t('sketchNext') + ' · ' + s;
   if (!ready.kernel) s = t('kernelLoading') + ' · ' + s;
   if (S.mode === '3d' && !S.active && T.sel3d && T.sel3d.length) {
     const ne = T.sel3d.filter(x => x.kind === 'edge').length, nf = T.sel3d.length - ne;
@@ -602,6 +606,7 @@ const api = {
     circle: (s, c, r) => ops.circle(s, c, r),
     arc: (s, c, r, a0, a1) => ops.arc(s, c, r, a0, a1),
     text: (s, at, txt, hh) => ops.text(s, at, txt, hh),
+    setText: (id, p) => ops.setText(id, p),
     construction: (id, v) => ops.construction(id, v),
     constrain: (s, type, ...refs) => ops.constrain(s, type, ...refs),
     dim: (s, type, refs, v) => ops.dim(s, type, refs, v),

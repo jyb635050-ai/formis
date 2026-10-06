@@ -335,3 +335,72 @@ export async function brand({ p, shot, sleep }) {
   await p.click('[data-testid="lang"]').catch(() => { }); await sleep(300); await p.screenshot({ path: 'shots/user-brand-en.png', clip: { x: 0, y: 0, width: 720, height: 70 } });
   console.log(await p.title());
 }
+// 用户流程：选面 → 文字工具 → 输入文字调字号 → 切除刻字；再选面 → 矩形 → 拉伸
+export async function facetext({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => { const c = __cad.cmd; const sid = await c.sketch('XY'); const P = [[0, 0], [90, 0], [90, 40], [0, 40]]; for (let i = 0; i < 4; i++) c.line(sid, P[i], P[(i + 1) % 4]); c.finish(sid); c.extrude(sid, { depth: 12 }); await __cad.idle(); });
+  await click('view-iso'); await sleep(900);
+  const scr = w => p.evaluate(w => __cad.project(w), w);
+  const v0 = (await p.evaluate(() => __cad.measure())).volume;
+  let q = await scr([45, 20, 12]); await tap(q.x, q.y); await sleep(300);
+  const sel = await p.evaluate(() => document.querySelector('#status')?.innerText || '');
+  await click('tool-text'); await sleep(900);
+  const act = await p.evaluate(() => ({ a: __cad.active(), plane: __cad.active() && __cad.sketch(__cad.active()).plane }));
+  q = await p.evaluate(() => __cad.toScreen(__cad.active(), [-35, -5])); await tap(q.x, q.y); await sleep(300);
+  const boxShown = await p.evaluate(() => !document.querySelector('#textbox').hidden);
+  await p.fill('#tx-text', 'PHJY 6203'); await p.fill('#tx-h', '9'); await p.dispatchEvent('#tx-h', 'input'); await sleep(200);
+  await shot('ft-a-typing');
+  await p.keyboard.press('Enter'); await sleep(200);
+  const ents = await p.evaluate(() => __cad.sketch(__cad.active()).entities.map(e => [e.type, e.text, e.h]));
+  await click('feat-cut'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '1'); await sleep(2500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(800);
+  const v1 = (await p.evaluate(() => __cad.measure())).volume;
+  await click('view-iso'); await sleep(800); await shot('ft-b-engraved');
+  // 再选面 → 矩形 → 拉伸
+  q = await scr([80, 32, 12]); await tap(q.x, q.y); await sleep(300);
+  await click('tool-rect'); await sleep(900);
+  const a = await p.evaluate(() => __cad.toScreen(__cad.active(), [0, 0])), b = await p.evaluate(() => __cad.toScreen(__cad.active(), [8, 6]));
+  await drag([a.x, a.y], [b.x, b.y]);
+  await click('feat-extrude'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '5'); await sleep(1500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(800);
+  const v2 = (await p.evaluate(() => __cad.measure())).volume;
+  await click('view-iso'); await sleep(800); await shot('ft-c-boss');
+  console.log(JSON.stringify({ sel, act, boxShown, ents, v0, v1, v2, feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])) }));
+}
+export async function dumpdoc({ p, sleep }) {
+  await p.evaluate(async () => { const c = __cad.cmd; const sid = await c.sketch('XY'); const P = [[0, 0], [90, 0], [90, 40], [0, 40]]; for (let i = 0; i < 4; i++) c.line(sid, P[i], P[(i + 1) % 4]); c.finish(sid); c.extrude(sid, { depth: 12 }); await __cad.idle(); });
+  await sleep(500);
+  const doc = await p.evaluate(async () => { const s2 = await __cad.cmd.sketch({ face: [45, 20, 12] }); __cad.cmd.text(s2, [-35, -5], 'PHJY 6203', 9); __cad.cmd.finish(s2); __cad.cmd.extrude(s2, { depth: 1, cut: true }); await __cad.idle(); return localStorage.getItem('glasscad.doc.v1'); });
+  (await import('node:fs')).writeFileSync('shots/doc-facetext.json', doc);
+  console.log('saved', doc.length);
+}
+// 侧面凸字：选前侧面 → 文字 → 中文 → A+ 放大 → 拖动换位置 → 双击改字 → 拉伸
+export async function facetext2({ p, click, drag, tap, shot, sleep }) {
+  await p.evaluate(async () => { const c = __cad.cmd; const sid = await c.sketch('XY'); const P = [[0, 0], [90, 0], [90, 40], [0, 40]]; for (let i = 0; i < 4; i++) c.line(sid, P[i], P[(i + 1) % 4]); c.finish(sid); c.extrude(sid, { depth: 30 }); await __cad.idle(); });
+  await click('view-iso'); await sleep(900);
+  let q = await p.evaluate(() => __cad.project([45, 0, 15])); await tap(q.x, q.y); await sleep(300);
+  await click('tool-text'); await sleep(900);
+  q = await p.evaluate(() => __cad.toScreen(__cad.active(), [-30, -5])); await tap(q.x, q.y); await sleep(300);
+  await p.fill('#tx-text', '形制 轴承'); await p.dispatchEvent('#tx-text', 'input');
+  const h0 = await p.inputValue('#tx-h');
+  await p.click('#textbox [data-step="1"]'); await p.click('#textbox [data-step="1"]'); await sleep(100);
+  const h1 = await p.inputValue('#tx-h');
+  await p.click('#tx-ok'); await sleep(200);
+  await click('tool-select'); await sleep(100);
+  const sid = await p.evaluate(() => __cad.active());
+  const T = async () => (await p.evaluate(() => __cad.sketch(__cad.active()).entities.filter(e => e.type === 'text')))[0];
+  let t0 = await T();
+  // 拖动文字：按在字中间往左下拖
+  const a = await p.evaluate(t => __cad.toScreen(__cad.active(), [t.at[0] + t.h * 1.5, t.at[1] + t.h * 0.4]), t0);
+  const b = await p.evaluate(t => __cad.toScreen(__cad.active(), [t.at[0] + t.h * 1.5 - 5, t.at[1] + t.h * 0.4 - 3]), t0);
+  await drag([a.x, a.y], [b.x, b.y]);
+  let t1 = await T();
+  // 双击改字
+  const c = await p.evaluate(t => __cad.toScreen(__cad.active(), [t.at[0] + t.h * 1.5, t.at[1] + t.h * 0.4]), t1);
+  await p.mouse.dblclick(c.x, c.y); await sleep(300);
+  const reopened = await p.evaluate(() => !document.querySelector('#textbox').hidden);
+  await p.fill('#tx-text', '形制'); await p.dispatchEvent('#tx-text', 'input'); await p.keyboard.press('Enter'); await sleep(200);
+  const t2 = await T();
+  await shot('ft2-a-sketch');
+  await click('feat-extrude'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '1.5'); await sleep(2500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(800);
+  await click('view-iso'); await sleep(800); await shot('ft2-b-emboss');
+  // 撤销一步：回到拉伸前
+  console.log(JSON.stringify({ sid, h0, h1, t0: [t0.at.map(Math.round), t0.h, t0.text], t1: t1.at.map(x => +x.toFixed(1)), reopened, t2: [t2.text, t2.h], feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])), m: await p.evaluate(() => __cad.measure()) }));
+}

@@ -206,3 +206,13 @@ body.m3d #status { pointer-events: none; }
 #dims-toggle .slash { display: none; }
 #dims-toggle.off .slash { display: inline; }
 #dims-toggle.off { color: #e5484d; }
+/* 文字面板：放文字/双击文字时弹出，改内容和字号 */
+#textbox { position: fixed; z-index: 50; width: 300px; padding: 10px; border-radius: 14px; display: flex; flex-direction: column; gap: 8px; }
+#textbox #tx-text { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 0; border-radius: 9px; background: var(--glass2); outline: none; font-size: 15px; font-weight: 600; box-shadow: 0 0 0 2px var(--accent); user-select: text; color: inherit; }
+#textbox .row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+#textbox .row.end { justify-content: flex-end; }
+#textbox .row.end small { margin-right: auto; color: var(--fg2); font-size: 11px; }
+#textbox input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+#textbox #tx-h { width: 46px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--glass2); text-align: right; color: inherit; outline: none; }
+#textbox .mini { padding: 3px 7px; border-radius: 7px; border: 1px solid rgba(127, 127, 127, .35); background: transparent; color: inherit; cursor: pointer; font-weight: 600; }
+#textbox .primary { padding: 4px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; font-weight: 600; }
