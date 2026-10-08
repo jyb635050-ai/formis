@@ -218,3 +218,9 @@ body.m3d #status { pointer-events: none; }
 #textbox .primary { padding: 4px 14px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; cursor: pointer; font-weight: 600; }
 #textbox #tx-a { width: 46px; padding: 4px 6px; border: 0; border-radius: 7px; background: var(--glass2); text-align: right; color: inherit; outline: none; }
 #textbox .row > span:first-child { width: 28px; flex: none; }
+/* 裁剪：要去掉的那段标红，划过的轨迹红色虚线 */
+#overlay .trim-rm, svg .trim-rm { stroke: #e5484d; stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+#overlay .trim-trail, svg .trim-trail { stroke: #e5484d; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; opacity: .8; }
+/* 顶部右侧署名 */
+.dev-credit { font-size: 12px; color: var(--fg2); white-space: nowrap; margin-right: 6px; letter-spacing: .3px; }
+@media (max-width: 1100px) { .dev-credit { display: none; } }

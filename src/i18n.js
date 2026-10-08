@@ -1,5 +1,6 @@
 // 中英文案。界面上所有文字都从这里取；用户自己输入的内容不翻译（放在 data-user-content 元素里）
 const zh = {
+  devCredit: '开发人员：Jeff',
   app: '形制', tagline: 'Formis · 网页制图与建模',
   'mode-2d': '二维制图', 'mode-3d': '三维建模', 'mode-sheet': '工程图',
   theme: '深色/浅色', themeDark: '切到深色', themeLight: '切到浅色', lang: 'English',
@@ -7,7 +8,7 @@ const zh = {
   save: '保存项目', open: '打开项目', export: '导出',
   'export-dxf': '导出 DXF 图纸', 'export-svg': '导出 SVG', 'export-pdf': '导出 PDF', 'export-3mf': '导出 3MF（3D 打印）', 'export-step': '导出 STEP',
   sketchTools: '草图', featTools: '特征', views: '视图',
-  'tool-select': '选择', 'tool-line': '直线', 'tool-rect': '矩形', 'tool-circle': '圆', 'tool-arc': '圆弧', 'tool-dim': '智能尺寸', 'tool-text': '文字（可拉伸凸字或切除刻字）', 'tool-construction': '构造线',
+  'tool-select': '选择', 'tool-line': '直线', 'tool-rect': '矩形', 'tool-circle': '圆', 'tool-arc': '圆弧', 'tool-dim': '智能尺寸', 'tool-text': '文字（可拉伸凸字或切除刻字）', 'tool-trim': '裁剪（按住划过多余的线就裁掉）', 'tool-construction': '构造线',
   'new-sketch': '新建草图', 'sketch-done': '退出草图', 'make-sheet': '生成工程图',
   'feat-extrude': '拉伸凸台', 'feat-cut': '拉伸切除', 'feat-revolve': '旋转', 'feat-fillet': '圆角', 'feat-chamfer': '倒角', 'feat-shell': '抽壳',
   'view-front': '前视', 'view-top': '俯视', 'view-left': '左视', 'view-iso': '等轴测', 'view-fit': '全部显示',
@@ -38,12 +39,14 @@ const zh = {
   dimPairDist: '点击＝标注两线间距', dimPairAng: '点击＝标注两线夹角', dimPairPt: '点击＝标注点到线的距离',
   dimsToggle: '一键显示 / 隐藏全部尺寸', dimsHidden: '已隐藏全部尺寸（再点一次显示）', dimsShown: '已显示全部尺寸',
   sketchNext: '画好后直接点底部「拉伸」或「切除」',
+  trimHint: '按住鼠标划过多余的线，碰到的那段就裁掉', trimHover: '红色这段会被裁掉：点一下或划过去', trimmed: '已裁剪 {n} 段（Ctrl+Z 可撤销）',
   textHere: '点击放文字', textDefault: '文字', textContent: '文字内容', textSize: '字号', textSmaller: '缩小', textBigger: '放大', textAngle: '角度', textRotCcw: '逆时针转 15°', textRotCw: '顺时针转 15°', textTip: '回车确认 · Esc 取消 · 双击文字再改',
   snapH: '水平', snapV: '竖直', snapAlign: '对齐',
   numLine: '输入长度，回车', numRect: '输入 宽,高，回车', numCircle: '输入半径，回车',
-  autoSketch: '已自动选用草图', profileOpen: '草图轮廓没有封闭：红点是没接上的端点', keys: '快捷键：L 直线 · R 矩形 · C 圆 · A 圆弧 · D 尺寸 · T 文字 · S 选择 · 画图时直接敲数字定长度',
+  autoSketch: '已自动选用草图', profileOpen: '草图轮廓没有封闭：红点是没接上的端点', keys: '快捷键：L 直线 · R 矩形 · C 圆 · A 圆弧 · D 尺寸 · T 文字 · X 裁剪 · S 选择 · 画图时直接敲数字定长度',
 };
 const en = {
+  devCredit: 'Developer: Jeff',
   app: 'Formis', tagline: 'Drafting & Modeling',
   'mode-2d': '2D Drafting', 'mode-3d': '3D Modeling', 'mode-sheet': 'Drawing Sheet',
   theme: 'Light/Dark', themeDark: 'Switch to dark', themeLight: 'Switch to light', lang: '中文',
@@ -51,7 +54,7 @@ const en = {
   save: 'Save project', open: 'Open project', export: 'Export',
   'export-dxf': 'Export DXF', 'export-svg': 'Export SVG', 'export-pdf': 'Export PDF', 'export-3mf': 'Export 3MF (3D print)', 'export-step': 'Export STEP',
   sketchTools: 'Sketch', featTools: 'Features', views: 'Views',
-  'tool-select': 'Select', 'tool-line': 'Line', 'tool-rect': 'Rectangle', 'tool-circle': 'Circle', 'tool-arc': 'Arc', 'tool-dim': 'Smart Dimension', 'tool-text': 'Text (extrude to emboss, cut to engrave)', 'tool-construction': 'Construction',
+  'tool-select': 'Select', 'tool-line': 'Line', 'tool-rect': 'Rectangle', 'tool-circle': 'Circle', 'tool-arc': 'Arc', 'tool-dim': 'Smart Dimension', 'tool-text': 'Text (extrude to emboss, cut to engrave)', 'tool-trim': 'Trim (drag across the extra lines to cut them)', 'tool-construction': 'Construction',
   'new-sketch': 'New Sketch', 'sketch-done': 'Exit Sketch', 'make-sheet': 'Make Drawing',
   'feat-extrude': 'Extruded Boss', 'feat-cut': 'Extruded Cut', 'feat-revolve': 'Revolve', 'feat-fillet': 'Fillet', 'feat-chamfer': 'Chamfer', 'feat-shell': 'Shell',
   'view-front': 'Front', 'view-top': 'Top', 'view-left': 'Left', 'view-iso': 'Isometric', 'view-fit': 'Zoom to Fit',
@@ -82,10 +85,11 @@ const en = {
   dimPairDist: 'Click = distance between lines', dimPairAng: 'Click = angle between lines', dimPairPt: 'Click = point-to-line distance',
   dimsToggle: 'Show / hide all dimensions', dimsHidden: 'All dimensions hidden (click again to show)', dimsShown: 'All dimensions shown',
   sketchNext: 'When done, click Extrude or Cut at the bottom',
+  trimHint: 'Hold and drag across extra lines to trim them', trimHover: 'The red piece will be removed: click or drag across', trimmed: 'Trimmed {n} pieces (Ctrl+Z to undo)',
   textHere: 'Click to place text', textDefault: 'Text', textContent: 'Text', textSize: 'Size', textSmaller: 'Smaller', textBigger: 'Bigger', textAngle: 'Angle', textRotCcw: 'Rotate 15° counter-clockwise', textRotCw: 'Rotate 15° clockwise', textTip: 'Enter to apply · Esc to cancel · double-click text to edit',
   snapH: 'Horizontal', snapV: 'Vertical', snapAlign: 'Aligned',
   numLine: 'Type length, Enter', numRect: 'Type W,H, Enter', numCircle: 'Type radius, Enter',
-  autoSketch: 'Sketch picked automatically', profileOpen: 'Sketch profile is not closed: red dots are loose endpoints', keys: 'Keys: L line · R rect · C circle · A arc · D dimension · T text · S select · type a number while drawing',
+  autoSketch: 'Sketch picked automatically', profileOpen: 'Sketch profile is not closed: red dots are loose endpoints', keys: 'Keys: L line · R rect · C circle · A arc · D dimension · T text · X trim · S select · type a number while drawing',
 };
 const DICT = { zh, en };
 let lang = 'zh';

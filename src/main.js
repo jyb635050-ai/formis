@@ -607,6 +607,7 @@ const api = {
     arc: (s, c, r, a0, a1) => ops.arc(s, c, r, a0, a1),
     text: (s, at, txt, hh) => ops.text(s, at, txt, hh),
     setText: (id, p) => ops.setText(id, p), // p: { text, h, at, ang }
+    trim: (s, id, at) => ops.trim(s, id, at),
     construction: (id, v) => ops.construction(id, v),
     constrain: (s, type, ...refs) => ops.constrain(s, type, ...refs),
     dim: (s, type, refs, v) => ops.dim(s, type, refs, v),

@@ -1,6 +1,7 @@
 // 项目文档、撤销重做、自动保存，以及所有修改操作（界面与 window.__cad.cmd 共用这一套）
 import { solveSketch, ptOf, kindOf } from './solver.js';
 import { PLANES, describe, planeAt, V } from './kernel/build.js';
+import { trimPlan, pointAt } from './trim.js';
 
 const KEY = 'glasscad.doc.v1';
 export function newDoc() { return { v: 1, seq: 1, name: '', sketches: [], features: [], drawing2d: null, sheet: { size: 'A4' }, dimStyle: null }; }
@@ -160,6 +161,66 @@ export const ops = {
     if (p.at) e.at = [+p.at[0], +p.at[1]];
     if (p.ang != null) { let a = (+p.ang || 0) % 360; if (a > 180) a -= 360; if (a <= -180) a += 360; e.ang = Math.round(a * 1000) / 1000; }
     changed();
+  },
+  // 裁剪：在 p 处把实体 id 被其它图形切开的那一段去掉。quiet＝不单独记撤销（划线连裁时整串算一步）。返回是否裁了
+  trim(sid, id, p, quiet) {
+    const s = sk(sid), e = s.ents.find(x => x.id === id); if (!e || e.type === 'text') return false;
+    const plan = trimPlan(s, e, p); if (!plan) return false;
+    if (!quiet) snap();
+    const before = JSON.stringify(s);
+    const rollback = () => { const b = JSON.parse(before); Object.keys(s).forEach(k => delete s[k]); Object.assign(s, b); };
+    const refsUse = (refs, pred) => refs.some(pred);
+    if (plan.del) {
+      s.ents = s.ents.filter(x => x.id !== id);
+      s.cons = s.cons.filter(c => !refsUse(c.refs, r => r.split('.')[0] === id));
+      s.dims = s.dims.filter(d => !refsUse(d.refs, r => r.split('.')[0] === id));
+    } else {
+      const orig = JSON.parse(JSON.stringify(e));
+      const P = t => pointAt(orig, t), added = [];
+      const setPiece = (x, k) => {
+        if (orig.type === 'line') { x.a = P(k.from); x.b = P(k.to); }
+        else { const a0 = orig.type === 'circle' ? ((k.from % 360) + 360) % 360 : orig.a0 + k.from; x.type = 'arc'; x.c = orig.c.slice(); x.r = orig.r; x.a0 = a0; x.a1 = a0 + (k.to - k.from); }
+      };
+      const [k0, k1] = plan.keep;
+      setPiece(e, k0);
+      const moved = new Set(), retarget = {};
+      if (orig.type === 'circle') { /* 圆变弧：两个端点都是新的 */ }
+      else {
+        if (k0.from !== 0) moved.add(id + '.a');
+        if (!k1 && k0.from === 0) moved.add(id + '.b');
+      }
+      let nidNew = null;
+      if (k1) {
+        nidNew = nid(orig.type === 'line' ? 'L' : 'A');
+        const n = { id: nidNew, type: orig.type, construction: orig.construction }; setPiece(n, k1); s.ents.push(n);
+        retarget[id + '.b'] = nidNew + '.b';
+        if (orig.type === 'arc') added.push({ id: nid('K'), type: 'coincident', refs: [nidNew + '.c', id + '.c'], keep: true });
+        for (const c of s.cons) if ((c.type === 'horizontal' || c.type === 'vertical') && c.refs.length === 1 && c.refs[0] === id) added.push({ id: nid('K'), type: c.type, refs: [nidNew], keep: true });
+      }
+      const fix = r => retarget[r] || r;
+      // 长度会变的尺寸/约束去掉；挪走的端点上的约束、尺寸去掉；搬到新段上的端点改引用
+      s.dims = s.dims.filter(d => !(d.type === 'length' && d.refs[0] === id) && !refsUse(d.refs, r => moved.has(r)));
+      s.cons = s.cons.filter(c => !(c.type === 'midpoint' && c.refs.includes(id)) && !(c.type === 'equal' && orig.type === 'line' && c.refs.includes(id)) && !refsUse(c.refs, r => moved.has(r)));
+      for (const c of s.cons) c.refs = c.refs.map(fix);
+      for (const d of s.dims) d.refs = d.refs.map(fix);
+      // 新端点贴在切开它的那条线上（像 SolidWorks 裁剪后自动加的重合）
+      const on = (ref, by) => { if (by && s.ents.some(x => x.id === by && x.type !== 'text')) added.push({ id: nid('K'), type: 'pointon', refs: [ref, by] }); };
+      if (orig.type === 'circle') { on(id + '.a', k0.byFrom); on(id + '.b', k0.byTo); }
+      else {
+        if (k0.from !== 0) on(id + '.a', k0.byFrom);
+        if (k1 || k0.from === 0) on(id + '.b', k0.byTo);
+        if (k1) on(nidNew + '.a', k1.byFrom);
+      }
+      const tries = [added, added.filter(c => c.keep)];
+      let ok = false;
+      const base = JSON.stringify(s.cons);
+      for (const extra of tries) {
+        s.cons = JSON.parse(base).concat(extra.map(({ keep, ...c }) => c));
+        if (solveSketch(s)) { ok = true; break; }
+      }
+      if (!ok) { rollback(); if (!quiet) unsnap(); throw new Error('裁剪后约束解不出来'); }
+    }
+    solveSketch(s); changed(); return true;
   },
   construction(id, onoff) { const s = ownerSketch(id); if (!s) throw new Error('找不到 ' + id); snap(); s.ents.find(e => e.id === id).construction = !!onoff; changed(); },
   constrain(sid, type, ...refs) {

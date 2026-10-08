@@ -429,3 +429,60 @@ export async function textrot({ p, click, drag, tap, shot, sleep }) {
   await click('view-top'); await sleep(900); await shot('rot-b-cut');
   console.log(JSON.stringify({ a1, ang: t0.ang, reopened, aShown, feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])), vol: (await p.evaluate(() => __cad.measure())).volume }));
 }
+// 裁剪：井字四条线，一笔绕一圈划掉 8 段出头 → 封闭矩形 → 拉伸；另一草图：圆+直线，点裁成半圆 → 拉伸
+export async function trim({ p, click, drag, tap, shot, sleep }) {
+  await click('new-sketch'); await sleep(300); await click('plane-XY'); await sleep(700);
+  const sid = await p.evaluate(() => __cad.active());
+  await p.evaluate(s => { const c = __cad.cmd; c.line(s, [-10, 0], [60, 0]); c.line(s, [-10, 30], [60, 30]); c.line(s, [0, -10], [0, 40]); c.line(s, [50, -10], [50, 40]); }, sid);
+  await click('tool-trim'); await sleep(200);
+  const S = uv => p.evaluate(([s, uv]) => __cad.toScreen(s, uv), [sid, uv]);
+  // 悬停预览
+  let q = await S([55, 0]); await p.mouse.move(q.x, q.y, { steps: 4 }); await sleep(200);
+  const preview = await p.evaluate(() => !!document.querySelector('.overlay .trim-rm'));
+  await shot('trim-a-hover');
+  // 一笔划一圈
+  const path = [[-5, -5], [55, -5], [55, 35], [-5, 35], [-5, -5]];
+  q = await S(path[0]); await p.mouse.move(q.x, q.y); await p.mouse.down();
+  for (let i = 1; i < path.length; i++) { const a = path[i - 1], b = path[i]; for (let k = 1; k <= 15; k++) { const r = await S([a[0] + (b[0] - a[0]) * k / 15, a[1] + (b[1] - a[1]) * k / 15]); await p.mouse.move(r.x, r.y); await sleep(8); } }
+  await p.mouse.up(); await sleep(300);
+  await shot('trim-b-done');
+  const lines = await p.evaluate(s => __cad.sketch(s).entities.map(e => e.type + ':' + [e.a, e.b].map(x => x && x.map(v => Math.round(v * 100) / 100).join(',')).join('→')), sid);
+  await p.keyboard.press('Control+z'); await sleep(200);
+  const afterUndo = await p.evaluate(s => __cad.sketch(s).entities.map(e => [e.a, e.b].flat().map(Math.round).join(',')), sid);
+  await p.keyboard.press('Control+y'); await sleep(200);
+  await click('feat-extrude'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '10'); await sleep(1500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(500);
+  const v1 = (await p.evaluate(() => __cad.measure())).volume;
+  // 圆+直线 → 点裁成半圆
+  await p.keyboard.press('Escape'); await click('new-sketch'); await sleep(300); await click('plane-XZ'); await sleep(900);
+  const s2 = await p.evaluate(() => { const s = __cad.active(); __cad.cmd.circle(s, [25, 20], 10); __cad.cmd.line(s, [5, 20], [45, 20]); return s; });
+  await sleep(300); await click('tool-trim'); await sleep(200);
+  const S2 = uv => p.evaluate(([s, uv]) => __cad.toScreen(s, uv), [s2, uv]);
+  for (const uv of [[25, 30], [40, 20], [10, 20]]) { q = await S2(uv); await tap(q.x, q.y); await sleep(150); }
+  const ents2 = await p.evaluate(s => __cad.sketch(s).entities.map(e => e.type === 'circle' ? 'circle' : e.type === 'arc' ? `arc ${Math.round(e.a0)}..${Math.round(e.a1)}` : `line ${e.a.map(Math.round)}→${e.b.map(Math.round)}`), s2);
+  await shot('trim-c-half');
+  await click('feat-extrude'); await sleep(1500); await p.fill('[data-testid="feat-depth"]', '4'); await sleep(1500); await click('feat-ok'); await p.evaluate(() => __cad.idle()); await sleep(500);
+  const v2 = (await p.evaluate(() => __cad.measure())).volume;
+  console.log(JSON.stringify({ preview, lines, afterUndoCount: afterUndo.length, afterUndo0: afterUndo[0], v1, ents2, v2, halfDisk: v2 - v1, expect: Math.PI * 100 / 2 * 4, feats: await p.evaluate(() => __cad.features().map(f => [f.type, f.error])) }));
+}
+export async function trimapi({ p }) {
+  const r = await p.evaluate(async () => {
+    const c = __cad.cmd, s = await c.sketch('XY'), out = {};
+    const H = c.line(s, [-10, 0], [60, 0]); c.line(s, [0, -10], [0, 10]); c.line(s, [50, -10], [50, 10]);
+    c.constrain(s, 'horizontal', H);
+    c.trim(s, H, [25, 0]);   // 中间一段 → 一条变两条
+    const sk = () => __cad.sketch(s);
+    out.split = sk().entities.filter(e => e.type === 'line' && Math.abs(e.a[1]) < 1e-9 && Math.abs(e.b[1]) < 1e-9).map(e => [e.a[0], e.b[0]].map(v => Math.round(v * 1000) / 1000));
+    out.cons = sk().constraints ? sk().constraints.map(k => k.type).join(',') : null;
+    const A = c.arc(s, [100, 0], 10, 0, 180); c.line(s, [100, -5], [100, 20]);
+    c.trim(s, A, [100 + 10 * Math.cos(Math.PI / 4), 10 * Math.sin(Math.PI / 4)]); // 圆弧右半边去掉
+    const a = sk().entities.find(e => e.id === A); out.arc = [Math.round(a.a0), Math.round(a.a1)];
+    const lone = c.line(s, [200, 0], [220, 0]); c.trim(s, lone, [210, 0]); out.loneDeleted = !sk().entities.some(e => e.id === lone);
+    out.dof = sk().dof; out.status = sk().status;
+    return out;
+  });
+  console.log(JSON.stringify(r));
+}
+export async function header({ p, sleep }) {
+  await sleep(400); await p.screenshot({ path: 'shots/user-header.png', clip: { x: 0, y: 0, width: 1440, height: 70 } });
+  await p.click('[data-testid="lang"]'); await sleep(300); await p.screenshot({ path: 'shots/user-header-en.png', clip: { x: 0, y: 0, width: 1440, height: 70 } });
+}

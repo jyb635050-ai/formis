@@ -1,6 +1,6 @@
 // 鼠标工具：草图里画线/矩形/圆/圆弧（点两下或按住拖都行）、对象捕捉、水平竖直参考线、光标旁实时尺寸、键盘输数、
 // 智能尺寸、选择（点选/框选/拖点）；三维里悬停高亮、点选草图、选平面、选边、选面
-import { S, ops, txn, beginDrag, endDrag, sketchById, dimLabel, emit, ptOf, moveDimLabel, dimBase, measureDim } from './doc.js';
+import { S, ops, txn, beginDrag, endDrag, dropLastSnapshot, sketchById, dimLabel, emit, ptOf, moveDimLabel, dimBase, measureDim } from './doc.js';
 import { kindOf } from './solver.js';
 import { solveSketch } from './solver.js';
 import { arcPoints } from './kernel/build.js';
@@ -8,6 +8,7 @@ import * as view from './view.js';
 import { t } from './i18n.js';
 import { fmt } from './util.js';
 import { textDist, textCorners } from './font.js';
+import { trimPlan, removedPolyline } from './trim.js';
 
 export const T = { tool: 'select', st: {}, pick: null, sel: new Set(), pendingTool: null };
 let toast = () => { };
@@ -272,6 +273,7 @@ function sketchDown(e) {
     T.st = { box: [x, y], add: e.shiftKey || e.ctrlKey }; return;
   }
   if (T.tool === 'text') { const p = snapAt(s, x, y, {}); const uv = p ? p.uv : view.screenToPlane(s.plane, x, y); if (uv) placeText(s, uv); return; }
+  if (T.tool === 'trim') { beginDrag(); T.st = { trim: true, last: [x, y], path: [[x, y]], did: 0 }; trimAt(s, x, y); drawTrim(s, null); return; }
   if (T.tool === 'dim') return dimDown(s, x, y);
   const p = snapAt(s, x, y, { from: T.st.start && T.st.start.uv });
   if (!p) return;
@@ -290,6 +292,13 @@ function sketchMove(e) {
     T.st.moved = true; solveSketch(s, { ref: T.st.drag, uv }, T.st.relax); updateRelaxed(s, T.st.relax); view.drawSketches(); return;
   }
   if (T.st.box) { drawBox(T.st.box[0], T.st.box[1], x, y); return; }
+  if (T.st.trim) {
+    // 按住划过去：沿鼠标轨迹每 3 像素查一次，碰到哪条线就裁哪一段
+    const [lx, ly] = T.st.last, n = Math.max(1, Math.ceil(Math.hypot(x - lx, y - ly) / 3));
+    for (let i = 1; i <= n; i++) trimAt(s, lx + ((x - lx) * i) / n, ly + ((y - ly) * i) / n);
+    T.st.last = [x, y]; T.st.path.push([x, y]); drawTrim(s, null); return;
+  }
+  if (T.tool === 'trim') { drawTrim(s, hitTrim(s, x, y), x, y); return; }
   if (T.st.tdrag) {
     const uv = view.screenToPlane(s.plane, x, y), en = s.ents.find(q => q.id === T.st.tdrag); if (!uv || !en) return;
     if (!T.st.moved) { if (Math.hypot(uv[0] - T.st.from[0], uv[1] - T.st.from[1]) * view.pxPerMm() < 3) return; T.st.moved = true; beginDrag(); }
@@ -334,6 +343,7 @@ function sketchUp(e) {
   const s = active();
   if (T.st.drag) { updateRelaxed(s, T.st.relax); solveSketch(s); T.st = {}; endDrag(); view.drawSketches(); return; }
   if (T.st.tdrag) { const mv = T.st.moved; T.st = {}; if (mv) endDrag(); return; }
+  if (T.st.trim) { const did = T.st.did; T.st = {}; endDrag(); if (!did) dropLastSnapshot(); else toast(t('trimmed').replace('{n}', did)); ov.innerHTML = ''; drawTrim(s, hitTrim(s, e.clientX, e.clientY), e.clientX, e.clientY); return; }
   if (T.st.box) {
     const [ax, ay] = T.st.box, bx = e.clientX, by = e.clientY; const add = T.st.add; T.st = {}; ov.innerHTML = '';
     if (!add) T.sel.clear();
@@ -702,7 +712,7 @@ window.addEventListener('keydown', e => {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.active && T.sel.size) { const ids = [...T.sel]; T.sel.clear(); txn(() => ids.forEach(id => tryC(() => ops.del(id)))); syncSel(); }
   if (S.active && !T.st.start) {
-    const map = { l: 'line', r: 'rect', c: 'circle', a: 'arc', d: 'dim', s: 'select', t: 'text' };
+    const map = { l: 'line', r: 'rect', c: 'circle', a: 'arc', d: 'dim', s: 'select', t: 'text', x: 'trim' };
     if (map[e.key.toLowerCase()]) setTool(map[e.key.toLowerCase()]);
   }
 });
@@ -770,3 +780,23 @@ document.getElementById('tx-ok').addEventListener('click', commitText);
 document.getElementById('tx-del').addEventListener('click', () => { if (!tedit) return; const ed = tedit; cancelText(); if (!ed.isNew) { try { ops.del(ed.id); } catch (err) { toast(err.message, true); } } T.sel.delete(ed.id); syncSel(); });
 // 点到面板外面＝确认
 document.addEventListener('pointerdown', e => { if (tedit && !tbox.contains(e.target)) commitText(); }, true);
+
+// ───── 裁剪：悬停时把要去掉的那段标红；按住划过去（或点一下）就裁掉 ─────
+function hitTrim(s, x, y) {
+  const he = hitEnt(s, x, y, 6); if (!he || he.ent.type === 'text') return null;
+  const uv = view.screenToPlane(s.plane, x, y); if (!uv) return null;
+  const p = nearestOn(he.ent, uv), plan = trimPlan(s, he.ent, p);
+  return plan ? { id: he.id, ent: he.ent, p, plan } : null;
+}
+function trimAt(s, x, y) {
+  const h = hitTrim(s, x, y); if (!h) return;
+  try { if (ops.trim(s.id, h.id, h.p, true)) { T.st.did++; view.drawSketches(); } } catch (err) { toast(err.message, true); }
+}
+function drawTrim(s, h, x, y) {
+  ov.innerHTML = '';
+  const pts = uvs => uvs.map(uv => hostXY(...Object.values(view.toScreen(s.id, uv))).join(',')).join(' ');
+  if (T.st.trim && T.st.path.length > 1) svgEl('polyline', { points: T.st.path.map(q => hostXY(q[0], q[1]).join(',')).join(' '), class: 'trim-trail' });
+  if (h) svgEl('polyline', { points: pts(removedPolyline(h.ent, h.plan)), class: 'trim-rm' });
+  if (x != null) showReadout(x, y, [`<b>${t(h ? 'trimHover' : 'trimHint')}</b>`]);
+  view.setSketchState({ hover: null });
+}
